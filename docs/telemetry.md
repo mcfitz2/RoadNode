@@ -118,3 +118,42 @@ speed sampling keeps its normal spacing; the poller test checks distance stays w
 them enabled. A value is sent only while its last read is under 30 s old and the ECU advertised the
 PID. Values are checked against decoders with byte vectors in `test_obd`; not yet verified against a
 scan tool on the RAV4.
+
+## Send policy (#32)
+
+Speed is sampled locally about once a second and is never transmitted per sample. Over the mesh:
+
+| What | When | Configurable |
+|------|------|--------------|
+| Telemetry reply | on request from an ACL client | n/a (pull) |
+| `Vehicle started` | engine starts | no |
+| `Vehicle moving` | every N minutes while moving | admin `alert periodic <min>` (0 = off, max 1440), persisted; default 5; `-D PERIODIC_ALERT_MINUTES` sets the first-boot default |
+| `Vehicle parked` | trip ends | no |
+| `Vehicle DTC` | new code | no |
+
+`alert` shows the current interval. Admin commands only: they are not reachable by plain ACL clients.
+
+**Raw CAN never goes on the mesh.** MeshCore-facing code (`src/telemetry`, `src/node`) only sees
+`VehicleSnapshot` and DTC decoding. `scripts/check_no_raw_can.sh` (run in CI) fails if either
+directory includes the `can/` or OBD transport headers or names `CanFrame`/`CanBus`/`ObdManager`.
+
+### Airtime estimate
+
+Estimated, not measured. Time on air from the Semtech SX126x formula (8 symbol preamble, explicit
+header, CRC, CR 4/5) for these packet sizes: telemetry reply 54 bytes (header 2 + hashes 2 + MAC 2 +
+64 byte padded cipher of timestamp + 44 byte LPP incl. GPS); with 12 DTCs 134 bytes; alert 54 bytes.
+Direct path assumed; each flood hop adds path bytes (1 per hop) and a retransmission by that hop.
+
+| Radio setting | Reply / alert | Reply with 12 DTCs |
+|---------------|---------------|--------------------|
+| SF7 BW62.5 | 0.21 s | 0.44 s |
+| SF8 BW62.5 | 0.37 s | 0.78 s |
+| SF10 BW250 | 0.31 s | 0.64 s |
+| SF11 BW250 | 0.58 s | 1.19 s |
+
+Radio settings are set per deployment through MeshCore, so check which row applies. Driving with the
+default 5 minute report: 12 reports per hour, plus start and park, about 3 to 7 s of airtime per hour
+per opted-in client (0.1 to 0.2 % duty cycle); high-priority alerts (parked, DTC) retry until ACKed,
+so a poor link can multiply their share. At about 120 mA transmit current (SX1262 at +22 dBm, from
+the datasheet, not measured on this board) 7 s per hour is roughly 0.25 mAh. Receive listening, which
+MeshCore does continuously, and the advert interval are unchanged by this project and dominate battery use.

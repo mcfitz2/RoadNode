@@ -29,9 +29,15 @@ struct AlertConfig {
 
 class AlertLogic {
 public:
-  explicit AlertLogic(const AlertConfig& cfg = AlertConfig()) : _cfg(cfg) {
-    if (_cfg.periodic_hold_ms > _cfg.periodic_interval_ms / 2) _cfg.periodic_hold_ms = _cfg.periodic_interval_ms / 2;
+  explicit AlertLogic(const AlertConfig& cfg = AlertConfig()) : _cfg(cfg), _hold_wanted_ms(cfg.periodic_hold_ms) { clampHold(); }
+
+  // Runtime change of the "still moving" interval; 0 turns periodic reports off.
+  // Takes effect from the next report; an interval already running is not cut short.
+  void setPeriodicIntervalMs(uint32_t ms) {
+    _cfg.periodic_interval_ms = ms;
+    clampHold();
   }
+  uint32_t periodicIntervalMs() const { return _cfg.periodic_interval_ms; }
 
   AlertConditions update(const VehicleSnapshot& s, uint32_t now_ms) {
     AlertConditions c;
@@ -55,7 +61,7 @@ public:
       if (_pulse && (int32_t)(now_ms - _pulse_end_ms) >= 0) _pulse = false;
       bool moving = s.has_speed && s.speed_kmh >= _cfg.moving_kmh;
       // Due but stationary: stays due and fires on the first moving check.
-      if (!_pulse && moving && (uint32_t)(now_ms - _last_ms) >= _cfg.periodic_interval_ms) {
+      if (!_pulse && moving && _cfg.periodic_interval_ms && (uint32_t)(now_ms - _last_ms) >= _cfg.periodic_interval_ms) {
         _pulse = true;
         _last_ms = now_ms;
         _pulse_end_ms = now_ms + _cfg.periodic_hold_ms;
@@ -66,6 +72,11 @@ public:
   }
 
 private:
+  void clampHold() {
+    _cfg.periodic_hold_ms = _hold_wanted_ms;
+    if (_cfg.periodic_hold_ms > _cfg.periodic_interval_ms / 2) _cfg.periodic_hold_ms = _cfg.periodic_interval_ms / 2;
+  }
+
   // New-code detection. The first successful read after boot is the baseline and
   // does not alert, so a code that was already stored does not re-alert on every
   // ignition cycle. A code that disappears and comes back alerts again.
@@ -94,6 +105,7 @@ private:
   }
 
   AlertConfig _cfg;
+  uint32_t _hold_wanted_ms;
   bool _dtc_baseline = false;
   bool _dtc_pulse = false;
   uint32_t _dtc_pulse_end_ms = 0;

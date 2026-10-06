@@ -4,6 +4,8 @@
 #include "SensorMesh.h"
 #include "obd/dtc.h"
 #include "vehicle/alert_logic.h"
+#include "storage/nvs_kv_store.h"
+#include "vehicle/alert_settings.h"
 #include "vehicle/identity_commands.h"
 #include "vehicle/vehicle_runtime.h"
 
@@ -20,9 +22,12 @@ public:
   {
   }
 
+  void loadVehicleSettings() { roadnode::vehicle::loadAlertSettings(settings_kv, vehicle_alerts); }
+
 protected:
   /* ========================== custom logic here ========================== */
   Trigger low_batt, critical_batt;
+  roadnode::storage::NvsKvStore settings_kv;
   Trigger vehicle_started, vehicle_parked, vehicle_periodic, vehicle_dtc;
   roadnode::vehicle::AlertLogic vehicle_alerts = roadnode::vehicle::AlertLogic(alertConfig());
 
@@ -88,6 +93,8 @@ protected:
       strcpy(reply, "**Magic now done**");
       return true;   // handled
     }
+    if (roadnode::vehicle::handleAlertCommand(settings_kv, vehicle_alerts, command, reply))
+      return true;
     if (roadnode::vehicle::handleIdentityCommand(roadnode::vehicle::VehicleRuntime::identity(), command, reply))
       return true;
     return false;  // not handled
@@ -163,6 +170,7 @@ void setup() {
   sensors.begin();
 
   the_mesh.begin(fs);
+  the_mesh.loadVehicleSettings();
 
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
