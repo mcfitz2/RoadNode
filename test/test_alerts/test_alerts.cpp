@@ -1,3 +1,4 @@
+#include <initializer_list>
 #include <unity.h>
 
 #include "vehicle/alert_logic.h"

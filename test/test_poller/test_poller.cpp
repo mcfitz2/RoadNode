@@ -1,5 +1,6 @@
 #include <thread>
 #include <unity.h>
+#include <vector>
 
 #include "fake_bus.h"
 #include "fake_store.h"
