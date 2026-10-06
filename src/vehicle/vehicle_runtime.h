@@ -2,6 +2,7 @@
 
 #ifdef ARDUINO
 
+#include "vehicle_identity.h"
 #include "vehicle_state.h"
 
 // Owns the whole on-device vehicle stack (CAN, OBD, mileage, NVS) and runs it
@@ -25,6 +26,7 @@ public:
 
   // Reported by begin(): false if the CAN driver failed to start.
   static bool canStarted();
+  static VehicleIdentity& identity();
 };
 
 }  // namespace vehicle

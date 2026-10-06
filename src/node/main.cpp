@@ -4,6 +4,7 @@
 #include "SensorMesh.h"
 #include "obd/dtc.h"
 #include "vehicle/alert_logic.h"
+#include "vehicle/identity_commands.h"
 #include "vehicle/vehicle_runtime.h"
 
 #ifdef DISPLAY_CLASS
@@ -87,6 +88,8 @@ protected:
       strcpy(reply, "**Magic now done**");
       return true;   // handled
     }
+    if (roadnode::vehicle::handleIdentityCommand(roadnode::vehicle::VehicleRuntime::identity(), command, reply))
+      return true;
     return false;  // not handled
   }
   /* ======================================================================= */

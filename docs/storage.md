@@ -36,3 +36,19 @@ Re-check if the intervals are shortened substantially.
 - Wire into the mileage engine and trip events (checkpoint on `TripEvent::Ended`, before sleep): #26.
 - Store/restore `last_trip_timestamp` needs a time source (RTC or GPS time): until then it is 0.
 - Vehicle ID is stored here but the VIN-based identity flow is #18/#34.
+
+## Vehicle identity and VIN (#18, #34)
+
+Stored in NVS namespace `roadnode_cfg` (`NvsKvStore`), separate from the mileage slots.
+
+- `vid`: short vehicle ID (1-15 of `A-Z 0-9 - _`, stored uppercase). The persisted value wins over the
+  `VEHICLE_ID` build flag, which is only the first-boot default. This is the only identifier in telemetry
+  and alerts. Admin commands: `vid`, `vid set <ID>`.
+- `vin`: read once per boot from Mode 09 PID 02 while stopped (retried up to 5 times, 30 s apart; a
+  negative response stops retries). The first well-formed VIN is stored; a failing check digit is
+  recorded but not rejected (check digit is only mandatory in North America). A later different VIN
+  does not overwrite: it sets a mismatch flag. `vin clear` forgets it for a new vehicle.
+- The VIN never enters `VehicleSnapshot`, LPP telemetry, alerts or command replies (`vin` only reports
+  stored / check digit / mismatch). Admin command replies travel over the mesh, so they stay VIN-free.
+
+Unverified on hardware: NVS persistence across power cycles, real ECU VIN reads.

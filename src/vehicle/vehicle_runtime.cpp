@@ -10,7 +10,9 @@
 #include "can/obd_can_bus.h"
 #include "mileage_tracker.h"
 #include "obd/obd_manager.h"
+#include "storage/nvs_kv_store.h"
 #include "storage/nvs_slot_store.h"
+#include "vehicle_identity.h"
 #include "vehicle_poller.h"
 
 #ifndef CAN_BITRATE
@@ -24,6 +26,8 @@ namespace {
 
 can::ObdCanBus s_bus;
 storage::NvsSlotStore s_store;
+storage::NvsKvStore s_kv;
+VehicleIdentity s_identity(s_kv);
 MileageTracker s_tracker(s_store);
 VehicleTelemetry s_telemetry;
 obd::ObdManager s_obd(s_bus, obd::genericProfile());
@@ -54,7 +58,10 @@ bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
   s_obd.enableTransmit(transmit && s_can_ok);
   Serial.println(transmit ? "# OBD transmit ENABLED" : "# OBD transmit disabled (listen-only)");
 
-  s_tracker.setVehicleId(vehicle_id);
+  s_identity.begin(vehicle_id);
+  Serial.printf("# vehicle id: %s%s\n", s_identity.id(), s_identity.hasVin() ? " (VIN stored locally)" : "");
+  s_poller.setIdentity(&s_identity);
+  s_tracker.setVehicleId(s_identity.id());
   bool restored = s_tracker.begin(millis());
   Serial.printf("# odometer %s: %llu mm\n", restored ? "restored" : "fresh", (unsigned long long)s_tracker.totalMm());
 
@@ -65,6 +72,8 @@ bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
 const VehicleTelemetry& VehicleRuntime::telemetry() { return s_telemetry; }
 
 bool VehicleRuntime::shutdown() { return s_tracker.shutdown(millis()); }
+
+VehicleIdentity& VehicleRuntime::identity() { return s_identity; }
 
 bool VehicleRuntime::canStarted() { return s_can_ok; }
 

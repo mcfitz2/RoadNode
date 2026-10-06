@@ -85,6 +85,32 @@ void VehiclePoller::pollDtcs() {
   memcpy(_s.dtc_kind, next.dtc_kind, sizeof(_s.dtc_kind));
 }
 
+// One VIN read per boot, deferred like DTCs while moving. The result only goes to
+// VehicleIdentity (local storage); it never reaches the snapshot or telemetry.
+void VehiclePoller::pollVin(uint32_t now_ms) {
+  _vin_last_ms = now_ms;
+  _vin_attempts++;
+  _stats.vin_reads++;
+  char vin[18];
+  Status st = _obd.readVin(vin);
+  if (st == Status::Ok) {
+    VehicleIdentity::VinResult r = _identity->onVinRead(vin);
+    if (r != VehicleIdentity::VinResult::WriteFailed && r != VehicleIdentity::VinResult::Invalid) _vin_done = true;
+    return;
+  }
+  if (st == Status::Unsupported || (st == Status::NegativeResponse)) _vin_done = true;  // ECU says no: do not nag it
+  if (st == Status::Timeout || st == Status::Malformed || st == Status::BusError) account(st);
+}
+
+// The configured ID (VehicleIdentity) wins over the one stored in the mileage record.
+void VehiclePoller::copyVehicleId() {
+  if (_identity) {
+    _identity->copyId(_s.vehicle_id);
+  } else {
+    strncpy(_s.vehicle_id, _mileage.vehicleId(), sizeof(_s.vehicle_id) - 1);
+  }
+}
+
 void VehiclePoller::step(uint32_t now_ms) {
   _stats.polls++;
 
@@ -110,7 +136,7 @@ void VehiclePoller::step(uint32_t now_ms) {
     _s.vehicle_active = false;
     _s.engine_running = false;
     _s.has_speed = _s.has_rpm = false;
-    strncpy(_s.vehicle_id, _mileage.vehicleId(), sizeof(_s.vehicle_id) - 1);
+    copyVehicleId();
     _s.total_mm = _mileage.totalMm();
     _s.trip_mm = _mileage.tripMm();
     _s.trip_active = _mileage.tripActive();
@@ -171,6 +197,11 @@ void VehiclePoller::step(uint32_t now_ms) {
     pollDtcs();
   }
 
+  if (_identity && !_vin_done && _vin_attempts < _cfg.vin_max_attempts && _obd.transmitEnabled() &&
+      (_discovered || _obd.anyFrameSeen()) && !moving &&
+      (_vin_attempts == 0 || now_ms - _vin_last_ms >= _cfg.vin_retry_ms))
+    pollVin(now_ms);
+
   // Timestamps can be slightly ahead of now_ms (taken during the polls above), so compare signed.
   auto age = [&](uint32_t t) -> int32_t {
     int32_t a = (int32_t)(now_ms - t);
@@ -202,7 +233,7 @@ void VehiclePoller::step(uint32_t now_ms) {
   in.speed_kmh = _s.has_speed ? (uint8_t)(_s.speed_kmh > 255 ? 255 : _s.speed_kmh) : 0;
   _mileage.update(now_ms, in, got_speed);
 
-  strncpy(_s.vehicle_id, _mileage.vehicleId(), sizeof(_s.vehicle_id) - 1);
+  copyVehicleId();
   _s.total_mm = _mileage.totalMm();
   _s.trip_mm = _mileage.tripMm();
   _s.trip_active = _mileage.tripActive();

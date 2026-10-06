@@ -1,8 +1,10 @@
+#include <string>
 #include <thread>
 #include <unity.h>
 #include <vector>
 
 #include "fake_bus.h"
+#include "fake_kv.h"
 #include "fake_store.h"
 #include "vehicle/vehicle_poller.h"
 
@@ -111,6 +113,145 @@ struct DtcEcu {
     bus.inbox.push_back(f);
   }
 };
+
+// Layers a multi-frame Mode 09 PID 02 (VIN) reply over the Rig's ECU.
+struct VinEcu {
+  std::string vin = "1HGCM82633A004352";
+  bool answer = true;
+  bool negative = false;
+  int requests = 0;
+
+  void attach(Rig& r) {
+    auto prev = r.bus.on_send;
+    r.bus.on_send = [this, prev, &r](const CanFrame& f) {
+      if (f.id == 0x7DF && f.data[1] == 0x09 && f.data[2] == 0x02) {
+        requests++;
+        if (negative) {
+          CanFrame n;
+          n.id = 0x7E8;
+          n.dlc = 8;
+          n.data[0] = 3;
+          n.data[1] = 0x7F;
+          n.data[2] = 0x09;
+          n.data[3] = 0x12;
+          r.bus.inbox.push_back(n);
+        } else if (answer) {
+          std::vector<uint8_t> p = {0x49, 0x02, 0x01};
+          for (char c : vin) p.push_back((uint8_t)c);
+          CanFrame ff;
+          ff.id = 0x7E8;
+          ff.dlc = 8;
+          ff.data[0] = 0x10;
+          ff.data[1] = (uint8_t)p.size();
+          for (int i = 0; i < 6; i++) ff.data[2 + i] = p[i];
+          r.bus.inbox.push_back(ff);
+          uint8_t seq = 1;
+          for (size_t o = 6; o < p.size(); o += 7) {
+            CanFrame cf;
+            cf.id = 0x7E8;
+            cf.dlc = 8;
+            cf.data[0] = 0x20 | (seq++ & 0x0F);
+            for (size_t i = 0; i < 7 && o + i < p.size(); i++) cf.data[1 + i] = p[o + i];
+            r.bus.inbox.push_back(cf);
+          }
+        }
+        return;
+      }
+      prev(f);
+    };
+  }
+};
+
+void test_vin_read_once_stopped_and_stored() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  VinEcu v;
+  v.attach(r);
+  r.poller.setIdentity(&id);
+  r.ecu.speed = 0;
+  r.run(5);
+  TEST_ASSERT_TRUE(id.hasVin());
+  TEST_ASSERT_EQUAL_STRING("1HGCM82633A004352", id.vin());
+  TEST_ASSERT_EQUAL(1, v.requests);  // read once, not repeated
+  r.run(100);
+  TEST_ASSERT_EQUAL(1, v.requests);
+  TEST_ASSERT_EQUAL_STRING("RAV4", r.telem.snapshot().vehicle_id);
+}
+
+void test_vin_deferred_while_moving() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  VinEcu v;
+  v.attach(r);
+  r.poller.setIdentity(&id);
+  r.ecu.speed = 60;
+  r.run(30);
+  TEST_ASSERT_EQUAL(0, v.requests);
+  r.ecu.speed = 0;
+  r.run(3);
+  TEST_ASSERT_EQUAL(1, v.requests);
+}
+
+void test_vin_unsupported_not_retried() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  VinEcu v;
+  v.negative = true;
+  v.attach(r);
+  r.poller.setIdentity(&id);
+  r.run(200);
+  TEST_ASSERT_EQUAL(1, v.requests);
+  TEST_ASSERT_FALSE(id.hasVin());
+}
+
+void test_vin_silent_ecu_retries_bounded() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  VinEcu v;
+  v.answer = false;
+  v.attach(r);
+  r.poller.setIdentity(&id);
+  r.run(400);
+  TEST_ASSERT_TRUE(v.requests >= 2);
+  TEST_ASSERT_TRUE(v.requests <= 5);
+}
+
+void test_configured_id_overrides_mileage_record_id() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  id.setId("CAMRY");
+  r.poller.setIdentity(&id);
+  r.run(3);
+  TEST_ASSERT_EQUAL_STRING("CAMRY", r.telem.snapshot().vehicle_id);
+}
+
+void test_vin_not_in_snapshot_bytes() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  VinEcu v;
+  v.attach(r);
+  r.poller.setIdentity(&id);
+  r.run(5);
+  TEST_ASSERT_TRUE(id.hasVin());
+  VehicleSnapshot s = r.telem.snapshot();
+  const char* p = (const char*)&s;
+  bool found = false;
+  for (size_t i = 0; i + 17 <= sizeof(s); i++)
+    if (memcmp(p + i, "1HGCM82633A004352", 17) == 0) found = true;
+  TEST_ASSERT_FALSE(found);
+}
 
 void setUp() {}
 void tearDown() {}
@@ -418,6 +559,12 @@ void test_speed_samples_keep_spacing_while_moving() {
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_vin_read_once_stopped_and_stored);
+  RUN_TEST(test_vin_deferred_while_moving);
+  RUN_TEST(test_vin_unsupported_not_retried);
+  RUN_TEST(test_vin_silent_ecu_retries_bounded);
+  RUN_TEST(test_configured_id_overrides_mileage_record_id);
+  RUN_TEST(test_vin_not_in_snapshot_bytes);
   RUN_TEST(test_dtc_reads_deferred_while_moving);
   RUN_TEST(test_dtc_read_happens_once_stopped);
   RUN_TEST(test_dtc_read_forced_after_max_defer);
