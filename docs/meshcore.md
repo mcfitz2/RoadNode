@@ -107,9 +107,11 @@ The plan's pin table (plan §3) conflicts with MeshCore's Heltec V4 config.
 | GNSS pins differ from plan | MeshCore: `PIN_GPS_RX=38`, `PIN_GPS_TX=39`, `PIN_GPS_RESET=42` (active LOW), `PIN_GPS_EN=34` (active LOW). Plan reserved 38-42 (wake 40, PPS 41) | Reserve 34 and 38-42; confirm against Heltec schematic |
 | Other board pins | `PIN_VEXT_EN=36`, `PIN_ADC_CTRL=37`, `PIN_VBAT_READ=1` | Avoid |
 | `ENV_INCLUDE_GPS=1` is already set in base flags | GPS support already in `EnvironmentSensorManager` | Reuse for #41 instead of writing a new NMEA parser |
-| Hardware revisions | `heltec_v4`, `heltec_v4_r8` variants exist | Confirm which revision we own before finalizing pins |
+| Hardware revisions | `heltec_v4` and `heltec_v4_r8` variants exist; R8 moves VEXT to 40, GNSS enable to 42, LED to 46 and has octal PSRAM on 33-37 | Our board is the **V4.3** (per the Amazon listing; confirm silkscreen), 2 MB PSRAM, KCT8103L PA: use the plain `heltec_v4` pin map. V4.2 uses the GC1109 PA; V4.3 and R8 use the KCT8103L |
 
-Candidate CAN pins to evaluate in #4: any currently unused exposed GPIO (not in the lists above), routed via the GPIO matrix. Needs a check against the V4 pinout and the actual board revision. Alternatively keep GPIO3/4 for CAN and drop the I2C env sensors (we don't need them).
+**Resolved:** CAN stays on GPIO3/4. Our `heltec_v4_roadnode` env extends `Heltec_lora32_v4` directly, so `ENV_PIN_SDA/SCL` are never set and there is no OLED (`DISPLAY_CLASS` unset). The no-display build compiles; runtime behavior without an OLED is untested until the board arrives.
+
+Original note, kept for context: candidate CAN pins to evaluate in #4: any currently unused exposed GPIO (not in the lists above), routed via the GPIO matrix. Needs a check against the V4 pinout and the actual board revision. Alternatively keep GPIO3/4 for CAN and drop the I2C env sensors (we don't need them).
 
 ## 6. Build verification
 
