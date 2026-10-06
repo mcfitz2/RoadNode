@@ -2,6 +2,7 @@
 #include <unity.h>
 
 #include "fake_bus.h"
+#include "obd/dtc.h"
 #include "obd/obd_manager.h"
 #include "obd/obd_pids.h"
 #include "obd/vehicle_profiles.h"
@@ -311,6 +312,134 @@ void test_generic_profile() {
   TEST_ASSERT_EQUAL(&p, &selectProfile(nullptr));
 }
 
+// ---- DTCs (modes 03 / 07 / 0A) ----
+void test_dtc_format_vectors() {
+  char c[6];
+  formatDtc(0x03, 0x01, c); TEST_ASSERT_EQUAL_STRING("P0301", c);
+  formatDtc(0x41, 0x23, c); TEST_ASSERT_EQUAL_STRING("C0123", c);
+  formatDtc(0x92, 0x34, c); TEST_ASSERT_EQUAL_STRING("B1234", c);
+  formatDtc(0xC1, 0x00, c); TEST_ASSERT_EQUAL_STRING("U0100", c);
+  formatDtc(0x34, 0xAF, c); TEST_ASSERT_EQUAL_STRING("P34AF", c);
+  formatDtc(0xF7, 0xFF, c); TEST_ASSERT_EQUAL_STRING("U37FF", c);
+}
+
+void test_dtc_decode_with_count_byte_ignores_padding() {
+  uint8_t d[] = {0x02, 0x03, 0x01, 0x01, 0x71, 0x00, 0x00};  // 2 codes + trailing zero pad
+  DtcList l;
+  TEST_ASSERT_TRUE(decodeDtcs(d, sizeof(d), l));
+  TEST_ASSERT_EQUAL(2, (int)l.count);
+  TEST_ASSERT_EQUAL_STRING("P0171", l.codes[1].code);
+}
+
+void test_dtc_decode_zero_pair_without_count_skipped() {
+  uint8_t d[] = {0x03, 0x01, 0x00, 0x00};
+  DtcList l;
+  TEST_ASSERT_TRUE(decodeDtcs(d, 4, l));
+  TEST_ASSERT_EQUAL(1, (int)l.count);
+}
+
+void test_dtc_decode_none() {
+  uint8_t d[] = {0x00};
+  DtcList l;
+  TEST_ASSERT_TRUE(decodeDtcs(d, 1, l));
+  TEST_ASSERT_EQUAL(0, (int)l.count);
+}
+
+void test_dtc_decode_without_count_byte() {
+  uint8_t d[] = {0x03, 0x01, 0x01, 0x71};
+  DtcList l;
+  TEST_ASSERT_TRUE(decodeDtcs(d, 4, l));
+  TEST_ASSERT_EQUAL(2, (int)l.count);
+  TEST_ASSERT_EQUAL_STRING("P0301", l.codes[0].code);
+  TEST_ASSERT_EQUAL_STRING("P0171", l.codes[1].code);
+}
+
+void test_dtc_decode_count_exceeds_data() {
+  uint8_t d[] = {0x03, 0x03, 0x01};  // claims 3 codes, has 1
+  DtcList l;
+  TEST_ASSERT_FALSE(decodeDtcs(d, 3, l));
+}
+
+void test_read_dtcs_single_frame() {
+  Rig r;
+  r.bus.push(0x7E8, {0x06, 0x43, 0x02, 0x03, 0x01, 0x01, 0x71});
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Ok, r.obd.readDtcs(DtcMode::Stored, l));
+  TEST_ASSERT_EQUAL(2, (int)l.count);
+  TEST_ASSERT_EQUAL_STRING("P0301", l.codes[0].code);
+  TEST_ASSERT_EQUAL_STRING("P0171", l.codes[1].code);
+  // request is [01, 03]: one data byte, no PID
+  TEST_ASSERT_EQUAL(1, (int)r.bus.sent.size());
+  TEST_ASSERT_EQUAL_HEX8(0x01, r.bus.sent[0].data[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x03, r.bus.sent[0].data[1]);
+}
+
+void test_read_dtcs_no_codes() {
+  Rig r;
+  r.bus.push(0x7E8, {0x02, 0x43, 0x00});
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Ok, r.obd.readDtcs(DtcMode::Stored, l));
+  TEST_ASSERT_EQUAL(0, (int)l.count);
+}
+
+void test_read_dtcs_multiframe() {
+  Rig r;
+  // 47 04 P0301 P0171 C0123 U0100 -> 10 bytes: FF(10) + CF
+  r.bus.push(0x7E8, {0x10, 0x0A, 0x47, 0x04, 0x03, 0x01, 0x01, 0x71});
+  r.bus.push(0x7E8, {0x21, 0x41, 0x23, 0xC1, 0x00});
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Ok, r.obd.readDtcs(DtcMode::Pending, l));
+  TEST_ASSERT_EQUAL(4, (int)l.count);
+  TEST_ASSERT_EQUAL_STRING("C0123", l.codes[2].code);
+  TEST_ASSERT_EQUAL_STRING("U0100", l.codes[3].code);
+  TEST_ASSERT_EQUAL_HEX8(0x07, r.bus.sent[0].data[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x30, r.bus.sent[1].data[0]);  // flow control sent
+}
+
+void test_read_dtcs_permanent_mode_byte() {
+  Rig r;
+  r.bus.push(0x7E8, {0x02, 0x4A, 0x00});
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Ok, r.obd.readDtcs(DtcMode::Permanent, l));
+  TEST_ASSERT_EQUAL_HEX8(0x0A, r.bus.sent[0].data[1]);
+}
+
+void test_read_dtcs_unsupported_mode_negative_response() {
+  Rig r;
+  r.bus.push(0x7E8, {0x03, 0x7F, 0x0A, 0x12});  // service not supported
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Unsupported, r.obd.readDtcs(DtcMode::Permanent, l));
+  TEST_ASSERT_EQUAL(0, (int)l.count);
+}
+
+void test_read_dtcs_other_negative_response_stays_negative() {
+  Rig r;
+  r.bus.push(0x7E8, {0x03, 0x7F, 0x03, 0x22});  // conditions not correct
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::NegativeResponse, r.obd.readDtcs(DtcMode::Stored, l));
+}
+
+void test_read_dtcs_silent_ecu_times_out() {
+  Rig r;
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Timeout, r.obd.readDtcs(DtcMode::Permanent, l));
+}
+
+void test_read_dtcs_gate_closed_sends_nothing() {
+  Rig r;
+  r.obd.enableTransmit(false);
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Disabled, r.obd.readDtcs(DtcMode::Stored, l));
+  TEST_ASSERT_EQUAL(0, (int)r.bus.sent.size());
+}
+
+void test_read_dtcs_ignores_other_modes_reply() {
+  Rig r;
+  r.bus.push(0x7E8, {0x06, 0x47, 0x01, 0x03, 0x01, 0x00, 0x00});  // pending reply while asking stored
+  DtcList l;
+  TEST_ASSERT_EQUAL(Status::Timeout, r.obd.readDtcs(DtcMode::Stored, l));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_decode_speed);
@@ -340,5 +469,20 @@ int main() {
   RUN_TEST(test_multiframe_truncated_times_out);
   RUN_TEST(test_vin_validation);
   RUN_TEST(test_generic_profile);
+  RUN_TEST(test_dtc_format_vectors);
+  RUN_TEST(test_dtc_decode_with_count_byte_ignores_padding);
+  RUN_TEST(test_dtc_decode_zero_pair_without_count_skipped);
+  RUN_TEST(test_dtc_decode_none);
+  RUN_TEST(test_dtc_decode_without_count_byte);
+  RUN_TEST(test_dtc_decode_count_exceeds_data);
+  RUN_TEST(test_read_dtcs_single_frame);
+  RUN_TEST(test_read_dtcs_no_codes);
+  RUN_TEST(test_read_dtcs_multiframe);
+  RUN_TEST(test_read_dtcs_permanent_mode_byte);
+  RUN_TEST(test_read_dtcs_unsupported_mode_negative_response);
+  RUN_TEST(test_read_dtcs_other_negative_response_stays_negative);
+  RUN_TEST(test_read_dtcs_silent_ecu_times_out);
+  RUN_TEST(test_read_dtcs_gate_closed_sends_nothing);
+  RUN_TEST(test_read_dtcs_ignores_other_modes_reply);
   return UNITY_END();
 }

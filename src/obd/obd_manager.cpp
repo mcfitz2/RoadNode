@@ -24,8 +24,8 @@ bool ObdManager::accepts(uint32_t id) const {
 }
 
 // Receives one complete ISO-TP message (single or multi-frame) that answers
-// (mode, pid) or is a negative response to mode. Total time bounded by timeout_ms.
-Status ObdManager::receiveMessage(uint8_t mode, uint8_t pid, uint8_t* msg, size_t& len,
+// (mode, pid; pid < 0 means the mode has no PID byte) or is a negative response to mode. Total time bounded by timeout_ms.
+Status ObdManager::receiveMessage(uint8_t mode, int pid, uint8_t* msg, size_t& len,
                                   uint8_t& nrc, uint32_t& source) {
   uint32_t start = _bus.nowMs();
   auto remaining = [&]() -> uint32_t {
@@ -60,7 +60,7 @@ Status ObdManager::receiveMessage(uint8_t mode, uint8_t pid, uint8_t* msg, size_
           source = f.id;
           return Status::NegativeResponse;
         }
-        if (f.data[1] != mode + 0x40 || (n >= 3 && f.data[2] != pid)) continue;
+        if (f.data[1] != mode + 0x40 || (pid >= 0 && n >= 3 && f.data[2] != pid)) continue;
         memcpy(msg, f.data + 1, n);
         len = n;
         source = f.id;
@@ -69,7 +69,7 @@ Status ObdManager::receiveMessage(uint8_t mode, uint8_t pid, uint8_t* msg, size_
       if (type == 1) {  // first frame
         total = ((size_t)(f.data[0] & 0x0F) << 8) | f.data[1];
         if (total < 3 || total > Response::MAX + 2) return Status::Malformed;
-        if (f.data[2] != mode + 0x40 || f.data[3] != pid) continue;
+        if (f.data[2] != mode + 0x40 || (pid >= 0 && f.data[3] != pid)) continue;
         src = f.id;
         memcpy(msg, f.data + 2, 6);
         got = 6;
@@ -126,6 +126,39 @@ Status ObdManager::request(uint8_t mode, uint8_t pid, Response& out) {
   out.len = len - 2;
   memcpy(out.data, msg + 2, out.len);
   return Status::Ok;
+}
+
+Status ObdManager::requestMode(uint8_t mode, Response& out) {
+  out.len = 0;
+  if (!_enabled) return Status::Disabled;
+
+  CanFrame req;
+  req.id = _profile->request_id;
+  req.dlc = 8;
+  memset(req.data, 0x55, 8);
+  req.data[0] = 1;
+  req.data[1] = mode;
+  if (!_bus.send(req)) return Status::BusError;
+
+  uint8_t msg[Response::MAX + 2];
+  size_t len = 0;
+  Status st = receiveMessage(mode, -1, msg, len, out.nrc, out.source_id);
+  if (st != Status::Ok) return st;
+  if (len < 1) return Status::Malformed;
+  // msg = [mode+0x40, data...]
+  out.len = len - 1;
+  if (out.len > Response::MAX) return Status::Malformed;
+  memcpy(out.data, msg + 1, out.len);
+  return Status::Ok;
+}
+
+Status ObdManager::readDtcs(DtcMode mode, DtcList& out) {
+  out.count = 0;
+  Response r;
+  Status st = requestMode((uint8_t)mode, r);
+  if (st == Status::NegativeResponse && (r.nrc == 0x11 || r.nrc == 0x12)) return Status::Unsupported;
+  if (st != Status::Ok) return st;
+  return decodeDtcs(r.data, r.len, out) ? Status::Ok : Status::Malformed;
 }
 
 Status ObdManager::readPid(uint8_t pid, float& value) {

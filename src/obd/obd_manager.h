@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "dtc.h"
 #include "obd_pids.h"
 #include "vehicle_profiles.h"
 
@@ -64,6 +65,9 @@ public:
   // Generic request: mode (01, 09, ...) and PID. Handles single and multi-frame replies.
   Status request(uint8_t mode, uint8_t pid, Response& out);
 
+  // Request with no PID byte (modes 03, 07, 0A). out.data is the payload after the mode byte.
+  Status requestMode(uint8_t mode, Response& out);
+
   // Mode 01 request that skips PIDs known unsupported, and decodes the value.
   Status readPid(uint8_t pid, float& value);
 
@@ -77,11 +81,16 @@ public:
   bool anyFrameSeen() const { return _frames_seen != 0; }
   uint32_t lastFrameMs() const { return _last_frame_ms; }
 
+  // Mode 03 / 07 / 0A. Read only. Unsupported modes (negative response 0x11/0x12)
+  // return Unsupported; a silent ECU returns Timeout (common for 0A on older cars).
+  // The first responding ECU answers; more than DtcList::MAX codes is Malformed.
+  Status readDtcs(DtcMode mode, DtcList& out);
+
   // Mode 09 PID 02. Writes a NUL-terminated 17-character VIN.
   Status readVin(char vin[18]);
 
 private:
-  Status receiveMessage(uint8_t mode, uint8_t pid, uint8_t* msg, size_t& len, uint8_t& nrc,
+  Status receiveMessage(uint8_t mode, int pid, uint8_t* msg, size_t& len, uint8_t& nrc,
                         uint32_t& source);
   bool accepts(uint32_t id) const;
 
