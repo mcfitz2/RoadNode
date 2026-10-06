@@ -15,6 +15,7 @@ enum class DtcMode : uint8_t {
 };
 
 struct Dtc {
+  uint16_t raw = 0;    // the two wire bytes, hi<<8|lo
   char code[6] = {0};  // e.g. "P0301", NUL terminated
 };
 

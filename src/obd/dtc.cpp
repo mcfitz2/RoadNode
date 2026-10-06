@@ -26,6 +26,7 @@ bool decodeDtcs(const uint8_t* data, size_t len, DtcList& out) {
   for (; ofs + 1 < len && out.count < DtcList::MAX; ofs += 2) {
     if (declared != (size_t)-1 && ofs >= 1 + declared * 2) break;
     if (data[ofs] == 0 && data[ofs + 1] == 0) continue;  // padding
+    out.codes[out.count].raw = (uint16_t)((data[ofs] << 8) | data[ofs + 1]);
     formatDtc(data[ofs], data[ofs + 1], out.codes[out.count].code);
     out.count++;
   }

@@ -81,6 +81,36 @@ struct Rig {
   }
 };
 
+// Layers DTC replies (modes 03/07/0A) over the Rig's mode 01 ECU. Records every
+// mode byte the poller transmits.
+struct DtcEcu {
+  std::vector<uint8_t> stored_pairs, pending_pairs;  // hi, lo, hi, lo...
+  bool answer_pending = true;
+  bool answer_permanent = false;  // silent, like many older ECUs
+  std::vector<uint8_t> modes_sent;
+
+  void attach(Rig& r) {
+    auto mode01 = r.bus.on_send;
+    r.bus.on_send = [this, mode01, &r](const CanFrame& f) {
+      if (f.id == 0x7DF) modes_sent.push_back(f.data[1]);
+      if (f.id == 0x7DF && f.data[1] == 0x03) reply(r.bus, 0x43, stored_pairs);
+      else if (f.id == 0x7DF && f.data[1] == 0x07 && answer_pending) reply(r.bus, 0x47, pending_pairs);
+      else if (f.id == 0x7DF && f.data[1] == 0x0A && answer_permanent) reply(r.bus, 0x4A, {});
+      else mode01(f);
+    };
+  }
+  static void reply(FakeBus& bus, uint8_t mode, const std::vector<uint8_t>& pairs) {
+    CanFrame f;
+    f.id = 0x7E8;
+    f.dlc = 8;
+    f.data[0] = (uint8_t)(2 + pairs.size());  // mode + count + pairs (single frame, <= 5 bytes of codes)
+    f.data[1] = mode;
+    f.data[2] = (uint8_t)(pairs.size() / 2);
+    for (size_t i = 0; i < pairs.size(); i++) f.data[3 + i] = pairs[i];
+    bus.inbox.push_back(f);
+  }
+};
+
 void setUp() {}
 void tearDown() {}
 
@@ -260,8 +290,87 @@ void test_snapshot_consistent_across_threads() {
   TEST_ASSERT_EQUAL(0, torn);
 }
 
+void test_dtcs_read_and_merged_in_snapshot() {
+  Rig r;
+  DtcEcu d;
+  d.stored_pairs = {0x03, 0x01};   // P0301
+  d.pending_pairs = {0x04, 0x20};  // P0420
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(5);
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_TRUE(s.has_dtcs);
+  TEST_ASSERT_EQUAL(2, s.dtc_total);
+  TEST_ASSERT_EQUAL(2, s.dtc_count);
+  TEST_ASSERT_EQUAL_HEX16(0x0301, s.dtc_raw[0]);
+  TEST_ASSERT_EQUAL(DTC_STORED, s.dtc_kind[0]);
+  TEST_ASSERT_EQUAL_HEX16(0x0420, s.dtc_raw[1]);
+  TEST_ASSERT_EQUAL(DTC_PENDING, s.dtc_kind[1]);
+}
+
+void test_dtcs_zero_codes_is_known_not_unknown() {
+  Rig r;
+  DtcEcu d;
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(5);
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_TRUE(s.has_dtcs);
+  TEST_ASSERT_EQUAL(0, s.dtc_total);
+}
+
+void test_dtcs_not_read_without_ecu() {
+  Rig r;
+  r.ecu.on = false;
+  r.run(10);
+  TEST_ASSERT_FALSE(r.telem.snapshot().has_dtcs);
+  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
+}
+
+void test_dtcs_polled_slowly() {
+  Rig r;
+  DtcEcu d;
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(65);  // ~65 s at 30 s interval: first read plus two more
+  TEST_ASSERT_UINT32_WITHIN(1, 3, r.poller.stats().dtc_reads);
+}
+
+void test_silent_mode_0a_does_not_drop_obd_connection() {
+  Rig r;
+  DtcEcu d;  // 0A never answers
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(100);
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_TRUE(s.obd_connected);
+  TEST_ASSERT_TRUE(s.has_dtcs);
+}
+
+void test_poller_never_transmits_clear_or_other_write_modes() {
+  Rig r;
+  DtcEcu d;
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(120);
+  TEST_ASSERT_FALSE(d.modes_sent.empty());
+  for (uint8_t m : d.modes_sent)
+    TEST_ASSERT_TRUE(m == 0x01 || m == 0x03 || m == 0x07 || m == 0x0A || m == 0x09);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_dtcs_read_and_merged_in_snapshot);
+  RUN_TEST(test_dtcs_zero_codes_is_known_not_unknown);
+  RUN_TEST(test_dtcs_not_read_without_ecu);
+  RUN_TEST(test_dtcs_polled_slowly);
+  RUN_TEST(test_silent_mode_0a_does_not_drop_obd_connection);
+  RUN_TEST(test_poller_never_transmits_clear_or_other_write_modes);
   RUN_TEST(test_normal_driving);
   RUN_TEST(test_no_can_connection_at_boot);
   RUN_TEST(test_unplug_mid_trip_then_reconnect);

@@ -2,6 +2,7 @@
 // the vendor file are limited to the alert logic in MyMesh (engine start / parked
 // alerts carrying position). Re-diff against the vendor file on every MeshCore bump.
 #include "SensorMesh.h"
+#include "obd/dtc.h"
 #include "vehicle/alert_logic.h"
 #include "vehicle/vehicle_runtime.h"
 
@@ -21,7 +22,7 @@ public:
 protected:
   /* ========================== custom logic here ========================== */
   Trigger low_batt, critical_batt;
-  Trigger vehicle_started, vehicle_parked, vehicle_periodic;
+  Trigger vehicle_started, vehicle_parked, vehicle_periodic, vehicle_dtc;
   roadnode::vehicle::AlertLogic vehicle_alerts = roadnode::vehicle::AlertLogic(alertConfig());
 
   static roadnode::vehicle::AlertConfig alertConfig() {
@@ -41,6 +42,16 @@ protected:
       snprintf(out, n, "%s at %.5f,%.5f", what, sensors.node_lat, sensors.node_lon);
     }
   }
+  void dtcText(char* out, size_t n, const roadnode::vehicle::VehicleSnapshot& s) {
+    size_t used = snprintf(out, n, "Vehicle DTC:");
+    char code[6];
+    for (uint8_t i = 0; i < s.dtc_count && i < 6 && used < n; i++) {
+      roadnode::obd::formatDtc((uint8_t)(s.dtc_raw[i] >> 8), (uint8_t)s.dtc_raw[i], code);
+      used += snprintf(out + used, n - used, " %s", code);
+    }
+    if (s.dtc_total > 6 && used < n) snprintf(out + used, n - used, " +%u", (unsigned)(s.dtc_total - 6));
+  }
+
   TimeSeriesData  battery_data;
 
   void onSensorDataRead() override {
@@ -59,6 +70,11 @@ protected:
     alertIf(c.parked, vehicle_parked, HIGH_PRI_ALERT, text);
     positionText(text, sizeof(text), "Vehicle moving");
     alertIf(c.periodic, vehicle_periodic, LOW_PRI_ALERT, text);
+
+    // New trouble code: list the current codes (first 6) so the message is self-contained.
+    char dtc_text[96];
+    dtcText(dtc_text, sizeof(dtc_text), snap);
+    alertIf(c.dtc_new, vehicle_dtc, HIGH_PRI_ALERT, dtc_text);
   }
 
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {

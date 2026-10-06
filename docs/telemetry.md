@@ -25,8 +25,22 @@ MeshCore clients can already decode and display it. No custom packet type.
 | 5 | Engine RPM | generic sensor | rpm | 6 | only if RPM known |
 | 6 | State flags | digital input | bit flags | 3 | always |
 | 7 | Vehicle battery | voltage | volts, 0.01 | 4 | only if known |
+| 8 | DTC count | digital input | total codes the ECU reported, capped 255 | 3 | only after a successful DTC read (0 = none) |
+| 9 | DTC entry (repeated) | generic sensor | `kind << 16 \| raw`, up to 12 entries | 6 each | one per code |
 
 Fields with no fresh value are **omitted, never sent as zero**.
+
+## DTCs (channels 8 and 9)
+
+Read-only: modes 03 (stored), 07 (pending) and 0A (permanent), polled every 30 s while the
+ECU answers. Each entry on channel 9 is `kind << 16 | raw`, where kind is 1 stored,
+2 pending, 3 permanent and raw is the two wire bytes. Decode: top 2 bits of the high byte
+pick P/C/B/U, next 2 bits the first digit, then three hex digits (`0x0301` is `P0301`).
+Worst case (12 codes) is 29 + 3 + 72 = 104 bytes, plus MeshCore's channel 1, within the 180 limit.
+If the ECU reports more than 12, the count (channel 8) still shows the real total.
+A silent mode (many ECUs ignore 0A) is skipped; DTCs are omitted until stored (03) has answered.
+**Nothing that clears codes can be transmitted:** `ObdManager` refuses every mode outside
+01/03/07/09/0A with `Status::Forbidden` before building a frame.
 
 ## State flags (channel 6)
 
@@ -67,6 +81,12 @@ last valid GPS fix, or "(no GPS fix)" if none since boot.
 | `Vehicle started at <lat>,<lon>` | low (one attempt) | engine running |
 | `Vehicle parked at <lat>,<lon>` | high (retries until ACK) | driven, engine off, CAN bus quiet |
 | `Vehicle moving at <lat>,<lon>` | low (one attempt) | engine running and speed >= 5 km/h, every 5 min |
+| `Vehicle DTC: P0301 P0420 +n` | high (retries until ACK) | a code not seen before appears |
+
+The DTC alert lists up to 6 current codes (`+n` for the rest) and does not include position.
+The first successful read after boot is the baseline and does not alert, so a code that was
+already stored does not re-alert every ignition cycle; a code that disappears and returns alerts
+again. The consequence: a pre-existing code is only visible via pull telemetry, not an alert.
 
 The periodic report first fires one interval after engine start, then every interval
 while moving (set `-D PERIODIC_ALERT_MINUTES=n`). If due while stopped it waits for the

@@ -19,6 +19,8 @@ constexpr uint8_t CH_SPEED = 4;            // LPP analog input, km/h
 constexpr uint8_t CH_RPM = 5;              // LPP generic sensor, rpm
 constexpr uint8_t CH_STATE = 6;            // LPP digital input, bit flags
 constexpr uint8_t CH_VEHICLE_BATTERY = 7;  // LPP voltage, volts
+constexpr uint8_t CH_DTC_COUNT = 8;        // LPP digital input, total DTCs reported by the ECU (cap 255)
+constexpr uint8_t CH_DTC = 9;              // LPP generic sensor, repeated: kind << 16 | raw code
 
 constexpr uint8_t STATE_VEHICLE_ACTIVE = 1 << 0;
 constexpr uint8_t STATE_ENGINE_RUNNING = 1 << 1;
@@ -55,7 +57,19 @@ void encodeVehicle(const vehicle::VehicleSnapshot& s, Lpp& lpp) {
   lpp.addDigitalInput(CH_STATE, state);
 
   if (s.has_battery) lpp.addVoltage(CH_VEHICLE_BATTERY, s.battery_v);
+
+  // DTCs only after a successful read (0 codes is a real answer, unknown is omitted).
+  if (s.has_dtcs) {
+    lpp.addDigitalInput(CH_DTC_COUNT, s.dtc_total > 255 ? 255 : (uint8_t)s.dtc_total);
+    for (uint8_t i = 0; i < s.dtc_count && i < vehicle::VehicleSnapshot::MAX_DTCS; i++)
+      lpp.addGenericSensor(CH_DTC, (float)(((uint32_t)s.dtc_kind[i] << 16) | s.dtc_raw[i]));
+  }
 }
+
+struct DecodedDtc {
+  uint8_t kind = 0;   // vehicle::DtcKind
+  uint16_t raw = 0;   // two wire bytes
+};
 
 struct DecodedVehicle {
   bool has_total = false;
@@ -70,6 +84,10 @@ struct DecodedVehicle {
   uint8_t state = 0;
   bool has_battery = false;
   double battery_v = 0;
+  bool has_dtc_count = false;
+  uint8_t dtc_total = 0;
+  uint8_t dtc_n = 0;
+  DecodedDtc dtcs[vehicle::VehicleSnapshot::MAX_DTCS];
 };
 
 // Walks an LPP buffer and picks out the vehicle channels, skipping other
@@ -113,6 +131,13 @@ inline bool decodeVehicle(const uint8_t* buf, size_t len, DecodedVehicle& out) {
     } else if (ch == CH_VEHICLE_BATTERY && type == 116) {
       out.has_battery = true;
       out.battery_v = u / 100.0;
+    } else if (ch == CH_DTC_COUNT && type == 0) {
+      out.has_dtc_count = true;
+      out.dtc_total = (uint8_t)u;
+    } else if (ch == CH_DTC && type == 100 && out.dtc_n < vehicle::VehicleSnapshot::MAX_DTCS) {
+      out.dtcs[out.dtc_n].kind = (uint8_t)(u >> 16);
+      out.dtcs[out.dtc_n].raw = (uint16_t)u;
+      out.dtc_n++;
     }
     i += 2 + size;
   }

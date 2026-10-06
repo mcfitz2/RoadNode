@@ -34,6 +34,7 @@ void VehiclePoller::account(Status st) {
       _consec_fails++;
       break;
     case Status::Disabled:
+    case Status::Forbidden:
       break;
   }
 }
@@ -43,6 +44,45 @@ bool VehiclePoller::pollValue(uint8_t pid, float& v, uint32_t now_ms) {
   Status st = _obd.readPid(pid, v);
   account(st);
   return st == Status::Ok;
+}
+
+// Reads stored, pending and permanent DTCs (read-only) and merges them into the
+// snapshot. Stored (03) must succeed for the result to count; 07/0A are optional
+// and a silent or unsupporting ECU just skips them. Silence on these modes does
+// not count against the OBD connection: many ECUs never answer 0A.
+void VehiclePoller::pollDtcs() {
+  static const obd::DtcMode modes[3] = {obd::DtcMode::Stored, obd::DtcMode::Pending, obd::DtcMode::Permanent};
+  static const uint8_t kinds[3] = {DTC_STORED, DTC_PENDING, DTC_PERMANENT};
+
+  VehicleSnapshot next = _s;
+  next.dtc_count = 0;
+  next.dtc_total = 0;
+  bool stored_ok = false;
+  for (int m = 0; m < 3; m++) {
+    if (_dtc_mode_unsupported[m]) continue;
+    obd::DtcList list;
+    Status st = _obd.readDtcs(modes[m], list);
+    if (st == Status::Unsupported) {
+      _dtc_mode_unsupported[m] = true;
+      continue;
+    }
+    if (st == Status::Ok || st == Status::NegativeResponse || st == Status::BusError) account(st);
+    if (st != Status::Ok) continue;
+    if (m == 0) stored_ok = true;
+    next.dtc_total += (uint16_t)list.count;
+    for (size_t i = 0; i < list.count && next.dtc_count < VehicleSnapshot::MAX_DTCS; i++) {
+      next.dtc_raw[next.dtc_count] = list.codes[i].raw;
+      next.dtc_kind[next.dtc_count] = kinds[m];
+      next.dtc_count++;
+    }
+  }
+  _stats.dtc_reads++;
+  if (!stored_ok) return;  // keep the previous result rather than report a partial one
+  _s.has_dtcs = true;
+  _s.dtc_total = next.dtc_total;
+  _s.dtc_count = next.dtc_count;
+  memcpy(_s.dtc_raw, next.dtc_raw, sizeof(_s.dtc_raw));
+  memcpy(_s.dtc_kind, next.dtc_kind, sizeof(_s.dtc_kind));
 }
 
 void VehiclePoller::step(uint32_t now_ms) {
@@ -112,6 +152,14 @@ void VehiclePoller::step(uint32_t now_ms) {
       _s.battery_v = batt;
       _batt_ms = now_ms;
     }
+  }
+
+  // DTCs change rarely: poll at a slow rate, only while the ECU is answering.
+  if (_cfg.dtc_poll_interval_ms && (got_speed || _s.obd_connected) &&
+      (!_dtc_tried || now_ms - _dtc_last_ms >= _cfg.dtc_poll_interval_ms)) {
+    _dtc_tried = true;
+    _dtc_last_ms = now_ms;
+    pollDtcs();
   }
 
   // Timestamps can be slightly ahead of now_ms (taken during the polls above), so compare signed.

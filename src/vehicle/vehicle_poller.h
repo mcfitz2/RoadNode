@@ -18,6 +18,7 @@ struct PollerConfig {
   uint32_t discovery_retry_ms = 5000;
   uint32_t bus_recovery_interval_ms = 1000;
   uint32_t value_stale_ms = 3000;           // live values older than this read as unknown
+  uint32_t dtc_poll_interval_ms = 30000;    // modes 03/07/0A; 0 disables DTC polling
 };
 
 struct PollerStats {
@@ -27,6 +28,7 @@ struct PollerStats {
   uint32_t negative = 0;
   uint32_t bus_errors = 0;
   uint32_t unsupported_skips = 0;
+  uint32_t dtc_reads = 0;
   uint32_t discoveries = 0;
   uint32_t bus_off_events = 0;
   uint32_t recoveries = 0;
@@ -51,6 +53,7 @@ public:
 private:
   void account(obd::Status st);
   bool pollValue(uint8_t pid, float& v, uint32_t now_ms);
+  void pollDtcs();
 
   obd::ObdManager& _obd;
   obd::CanBus& _bus;
@@ -68,6 +71,9 @@ private:
   uint32_t _last_recovery = 0;
   bool _recovery_started = false;
   uint32_t _speed_ms = 0, _rpm_ms = 0, _batt_ms = 0;
+  bool _dtc_tried = false;
+  uint32_t _dtc_last_ms = 0;
+  bool _dtc_mode_unsupported[3] = {false, false, false};  // 03, 07, 0A
 };
 
 }  // namespace vehicle

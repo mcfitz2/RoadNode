@@ -39,6 +39,7 @@ enum class Status : uint8_t {
   NegativeResponse,  // see Response::nrc
   Malformed,         // bad ISO-TP or response too large
   BusError,          // send failed
+  Forbidden,         // mode not on the read-only allowlist (never transmitted)
 };
 
 const char* statusName(Status s);
@@ -101,6 +102,11 @@ private:
   uint32_t _frames_seen = 0;
   uint32_t _last_frame_ms = 0;
 };
+
+// RoadNode is read-only: only these modes can ever be transmitted. Anything that
+// could clear codes or change ECU state (04, 14, 2x, 3x, ...) is refused in
+// request()/requestMode() before a frame is built.
+bool modeAllowed(uint8_t mode);
 
 // 17 characters, no I/O/Q, and a valid North American check digit (position 9).
 bool vinValid(const char* vin);

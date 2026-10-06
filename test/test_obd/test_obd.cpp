@@ -440,6 +440,23 @@ void test_read_dtcs_ignores_other_modes_reply() {
   TEST_ASSERT_EQUAL(Status::Timeout, r.obd.readDtcs(DtcMode::Stored, l));
 }
 
+void test_clear_and_write_modes_are_refused_before_sending() {
+  Rig r;
+  Response resp;
+  const uint8_t forbidden[] = {0x04, 0x02, 0x05, 0x06, 0x08, 0x0B, 0x10, 0x14, 0x19, 0x22, 0x27, 0x2E, 0x31, 0x3E};
+  for (uint8_t m : forbidden) {
+    TEST_ASSERT_EQUAL(Status::Forbidden, r.obd.request(m, 0x00, resp));
+    TEST_ASSERT_EQUAL(Status::Forbidden, r.obd.requestMode(m, resp));
+    TEST_ASSERT_FALSE(modeAllowed(m));
+  }
+  TEST_ASSERT_EQUAL(0, (int)r.bus.sent.size());
+}
+
+void test_allowed_modes_are_read_only_set() {
+  const uint8_t ok[] = {0x01, 0x03, 0x07, 0x09, 0x0A};
+  for (uint8_t m : ok) TEST_ASSERT_TRUE(modeAllowed(m));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_decode_speed);
@@ -469,6 +486,8 @@ int main() {
   RUN_TEST(test_multiframe_truncated_times_out);
   RUN_TEST(test_vin_validation);
   RUN_TEST(test_generic_profile);
+  RUN_TEST(test_clear_and_write_modes_are_refused_before_sending);
+  RUN_TEST(test_allowed_modes_are_read_only_set);
   RUN_TEST(test_dtc_format_vectors);
   RUN_TEST(test_dtc_decode_with_count_byte_ignores_padding);
   RUN_TEST(test_dtc_decode_zero_pair_without_count_skipped);

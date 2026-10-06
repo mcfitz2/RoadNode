@@ -206,6 +206,70 @@ void test_no_location_ever_encoded() {
   }
 }
 
+void test_dtcs_roundtrip_and_size() {
+  VehicleSnapshot s = driving();
+  s.has_dtcs = true;
+  s.dtc_total = 3;
+  s.dtc_count = 3;
+  s.dtc_raw[0] = 0x0301; s.dtc_kind[0] = vehicle::DTC_STORED;
+  s.dtc_raw[1] = 0x0420; s.dtc_kind[1] = vehicle::DTC_PENDING;
+  s.dtc_raw[2] = 0xC100; s.dtc_kind[2] = vehicle::DTC_PERMANENT;
+  ModelLpp lpp;
+  encodeVehicle(s, lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_TRUE(d.has_dtc_count);
+  TEST_ASSERT_EQUAL(3, d.dtc_total);
+  TEST_ASSERT_EQUAL(3, d.dtc_n);
+  TEST_ASSERT_EQUAL_HEX16(0x0301, d.dtcs[0].raw);
+  TEST_ASSERT_EQUAL(vehicle::DTC_STORED, d.dtcs[0].kind);
+  TEST_ASSERT_EQUAL_HEX16(0x0420, d.dtcs[1].raw);
+  TEST_ASSERT_EQUAL(vehicle::DTC_PENDING, d.dtcs[1].kind);
+  TEST_ASSERT_EQUAL_HEX16(0xC100, d.dtcs[2].raw);
+  TEST_ASSERT_EQUAL(vehicle::DTC_PERMANENT, d.dtcs[2].kind);
+  TEST_ASSERT_EQUAL(29 + 3 + 3 * 6, (int)lpp.buf.size());  // base + count + 3 codes
+}
+
+void test_dtcs_zero_codes_sends_count_only_and_unknown_sends_nothing() {
+  VehicleSnapshot s = driving();
+  s.has_dtcs = true;
+  ModelLpp lpp;
+  encodeVehicle(s, lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_TRUE(d.has_dtc_count);
+  TEST_ASSERT_EQUAL(0, d.dtc_total);
+  TEST_ASSERT_EQUAL(0, d.dtc_n);
+
+  VehicleSnapshot u = driving();  // never read
+  ModelLpp lpp2;
+  encodeVehicle(u, lpp2);
+  DecodedVehicle d2;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp2.buf.data(), lpp2.buf.size(), d2));
+  TEST_ASSERT_FALSE(d2.has_dtc_count);
+}
+
+void test_dtcs_worst_case_fits_payload() {
+  VehicleSnapshot s = driving();
+  s.has_dtcs = true;
+  s.dtc_total = 400;  // more than we carry; count saturates
+  s.dtc_count = (uint8_t)VehicleSnapshot::MAX_DTCS;
+  for (size_t i = 0; i < VehicleSnapshot::MAX_DTCS; i++) {
+    s.dtc_raw[i] = 0xFFFF;
+    s.dtc_kind[i] = vehicle::DTC_PERMANENT;
+  }
+  ModelLpp lpp(180);
+  encodeVehicle(s, lpp);
+  TEST_ASSERT_FALSE(lpp.overflow);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_EQUAL(255, d.dtc_total);
+  TEST_ASSERT_EQUAL(12, d.dtc_n);
+  TEST_ASSERT_EQUAL_HEX16(0xFFFF, d.dtcs[11].raw);
+  // MeshCore adds device battery (4) and GPS (11) on channel 1
+  TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_roundtrip_all_fields);
@@ -220,5 +284,8 @@ int main() {
   RUN_TEST(test_decoder_rejects_truncated_and_unknown);
   RUN_TEST(test_speed_signed_encoding_range);
   RUN_TEST(test_no_location_ever_encoded);
+  RUN_TEST(test_dtcs_roundtrip_and_size);
+  RUN_TEST(test_dtcs_zero_codes_sends_count_only_and_unknown_sends_nothing);
+  RUN_TEST(test_dtcs_worst_case_fits_payload);
   return UNITY_END();
 }

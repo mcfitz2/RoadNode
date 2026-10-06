@@ -125,12 +125,65 @@ void test_periodic_survives_millis_wrap() {
   TEST_ASSERT_TRUE(a.update(moving(80), t0 + 15 * MIN).periodic);
 }
 
+static VehicleSnapshot withDtcs(std::initializer_list<uint16_t> raws) {
+  VehicleSnapshot s = snap(true, true);
+  s.has_dtcs = true;
+  for (uint16_t r : raws) {
+    s.dtc_raw[s.dtc_count] = r;
+    s.dtc_kind[s.dtc_count] = DTC_STORED;
+    s.dtc_count++;
+  }
+  s.dtc_total = s.dtc_count;
+  return s;
+}
+
+void test_dtc_first_read_is_baseline_no_alert() {
+  AlertLogic a;
+  TEST_ASSERT_FALSE(a.update(withDtcs({0x0301}), 0).dtc_new);
+  TEST_ASSERT_FALSE(a.update(withDtcs({0x0301}), MIN).dtc_new);
+}
+
+void test_dtc_new_code_alerts_then_releases() {
+  AlertLogic a;
+  a.update(withDtcs({}), 0);
+  TEST_ASSERT_TRUE(a.update(withDtcs({0x0301}), MIN).dtc_new);
+  TEST_ASSERT_TRUE(a.update(withDtcs({0x0301}), 2 * MIN).dtc_new);   // held for the window
+  TEST_ASSERT_FALSE(a.update(withDtcs({0x0301}), 3 * MIN).dtc_new);  // released, no repeat
+  TEST_ASSERT_FALSE(a.update(withDtcs({0x0301}), 10 * MIN).dtc_new);
+}
+
+void test_dtc_additional_code_alerts_again() {
+  AlertLogic a;
+  a.update(withDtcs({0x0301}), 0);
+  TEST_ASSERT_FALSE(a.update(withDtcs({0x0301}), MIN).dtc_new);
+  TEST_ASSERT_TRUE(a.update(withDtcs({0x0301, 0x0420}), 2 * MIN).dtc_new);
+}
+
+void test_dtc_cleared_then_returns_alerts() {
+  AlertLogic a;
+  a.update(withDtcs({0x0301}), 0);
+  a.update(withDtcs({}), MIN);
+  TEST_ASSERT_TRUE(a.update(withDtcs({0x0301}), 2 * MIN).dtc_new);
+}
+
+void test_dtc_unknown_never_alerts() {
+  AlertLogic a;
+  VehicleSnapshot s = snap(true, true);  // has_dtcs false
+  TEST_ASSERT_FALSE(a.update(s, 0).dtc_new);
+  TEST_ASSERT_FALSE(a.update(s, MIN).dtc_new);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_boot_with_quiet_bus_is_not_parked);
   RUN_TEST(test_engine_on_is_started_not_parked);
   RUN_TEST(test_parked_after_drive_once_bus_quiet);
   RUN_TEST(test_restart_clears_parked_and_rearms);
+  RUN_TEST(test_dtc_first_read_is_baseline_no_alert);
+  RUN_TEST(test_dtc_new_code_alerts_then_releases);
+  RUN_TEST(test_dtc_additional_code_alerts_again);
+  RUN_TEST(test_dtc_cleared_then_returns_alerts);
+  RUN_TEST(test_dtc_unknown_never_alerts);
   RUN_TEST(test_defaults_every_five_minutes_and_rearm);
   RUN_TEST(test_hold_clamped_below_interval);
   RUN_TEST(test_periodic_first_report_one_interval_after_start);

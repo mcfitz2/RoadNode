@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -15,6 +16,8 @@
 namespace roadnode {
 namespace vehicle {
 
+enum DtcKind : uint8_t { DTC_STORED = 1, DTC_PENDING = 2, DTC_PERMANENT = 3 };
+
 struct VehicleSnapshot {
   char vehicle_id[16] = {0};
 
@@ -29,6 +32,15 @@ struct VehicleSnapshot {
   float rpm = 0;
   bool has_battery = false;
   float battery_v = 0;
+
+  // Last successful DTC read (modes 03/07/0A merged). Kept while OBD is briefly
+  // lost; has_dtcs stays false until the first successful read.
+  static constexpr size_t MAX_DTCS = 12;
+  bool has_dtcs = false;
+  uint16_t dtc_total = 0;          // codes the ECU reported, may exceed MAX_DTCS
+  uint8_t dtc_count = 0;           // entries filled below
+  uint16_t dtc_raw[MAX_DTCS] = {0};
+  uint8_t dtc_kind[MAX_DTCS] = {0};  // DTC_STORED/PENDING/PERMANENT
 
   bool vehicle_active = false;  // CAN bus traffic seen recently
   bool engine_running = false;

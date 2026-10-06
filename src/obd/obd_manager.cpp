@@ -14,8 +14,13 @@ const char* statusName(Status s) {
     case Status::NegativeResponse: return "negative-response";
     case Status::Malformed: return "malformed";
     case Status::BusError: return "bus-error";
+    case Status::Forbidden: return "forbidden";
   }
   return "?";
+}
+
+bool modeAllowed(uint8_t mode) {
+  return mode == 0x01 || mode == 0x03 || mode == 0x07 || mode == 0x09 || mode == 0x0A;
 }
 
 bool ObdManager::accepts(uint32_t id) const {
@@ -106,6 +111,7 @@ Status ObdManager::receiveMessage(uint8_t mode, int pid, uint8_t* msg, size_t& l
 
 Status ObdManager::request(uint8_t mode, uint8_t pid, Response& out) {
   out.len = 0;
+  if (!modeAllowed(mode)) return Status::Forbidden;
   if (!_enabled) return Status::Disabled;
 
   CanFrame req;
@@ -130,6 +136,7 @@ Status ObdManager::request(uint8_t mode, uint8_t pid, Response& out) {
 
 Status ObdManager::requestMode(uint8_t mode, Response& out) {
   out.len = 0;
+  if (!modeAllowed(mode)) return Status::Forbidden;
   if (!_enabled) return Status::Disabled;
 
   CanFrame req;
