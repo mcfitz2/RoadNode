@@ -26,6 +26,7 @@ enum class Result : uint8_t {
   InvalidBitrate,
   InvalidState,  // begin() while running, or end() while stopped
   DriverError,   // see lastError()
+  Timeout,       // no frame received / queue full within the timeout
 };
 
 struct Config {
@@ -37,6 +38,28 @@ struct Config {
   uint32_t tx_queue_len = 8;
 };
 
+struct Frame {
+  uint32_t id = 0;
+  uint8_t dlc = 0;
+  bool extended = false;  // 29-bit identifier
+  bool rtr = false;
+  bool self = false;      // transmit: request self-reception (Loopback mode)
+  uint8_t data[8] = {0};
+};
+
+struct Status {
+  uint32_t rx_queued;
+  uint32_t tx_queued;
+  uint32_t tx_errors;      // TEC
+  uint32_t rx_errors;      // REC
+  uint32_t tx_failed;
+  uint32_t rx_missed;      // dropped: RX queue full
+  uint32_t rx_overrun;     // dropped: hardware FIFO overrun
+  uint32_t arb_lost;
+  uint32_t bus_errors;
+  const char* state;       // stopped / running / bus-off / recovering
+};
+
 // Installs and starts the TWAI driver with an accept-all filter.
 Result begin(const Config& cfg);
 
@@ -44,6 +67,14 @@ Result begin(const Config& cfg);
 Result end();
 
 bool running();
+
+// Queues a frame for transmission. Refused (InvalidState) in ListenOnly mode.
+Result transmit(const Frame& f, uint32_t timeout_ms);
+
+// Waits up to timeout_ms for a frame. Returns Timeout if none arrived.
+Result receive(Frame& f, uint32_t timeout_ms);
+
+Result status(Status& s);
 
 // Last esp_err_t returned by the driver when a call returned Result::DriverError.
 int lastError();

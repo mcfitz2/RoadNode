@@ -20,4 +20,4 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install platformio
-      - run: pio run -e heltec_v4_roadnode
+      - run: pio run -e heltec_v4_roadnode -e heltec_v4_cansniffer -e heltec_v4_canloopback

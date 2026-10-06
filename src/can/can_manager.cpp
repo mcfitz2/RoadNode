@@ -1,5 +1,7 @@
 #include "can_manager.h"
 
+#include <string.h>
+
 #include "driver/twai.h"
 #include "esp_log.h"
 
@@ -9,6 +11,7 @@ namespace can {
 static const char* TAG = "can";
 
 static bool s_running = false;
+static Mode s_mode = Mode::ListenOnly;
 static esp_err_t s_last_err = ESP_OK;
 
 static bool timingFor(uint32_t bps, twai_timing_config_t& t) {
@@ -60,6 +63,7 @@ Result begin(const Config& cfg) {
   }
 
   s_running = true;
+  s_mode = cfg.mode;
   ESP_LOGI(TAG, "started: %u bps, mode %d, tx=%d rx=%d", (unsigned)cfg.bitrate_bps, (int)cfg.mode,
            (int)cfg.tx_pin, (int)cfg.rx_pin);
   return Result::Ok;
@@ -84,6 +88,67 @@ Result end() {
 
 bool running() { return s_running; }
 
+static TickType_t ticks(uint32_t ms) { return pdMS_TO_TICKS(ms); }
+
+Result transmit(const Frame& f, uint32_t timeout_ms) {
+  if (!s_running || s_mode == Mode::ListenOnly || f.dlc > 8) return Result::InvalidState;
+
+  twai_message_t m = {};
+  m.identifier = f.id;
+  m.data_length_code = f.dlc;
+  m.extd = f.extended;
+  m.rtr = f.rtr;
+  m.self = f.self;
+  memcpy(m.data, f.data, f.dlc);
+
+  s_last_err = twai_transmit(&m, ticks(timeout_ms));
+  if (s_last_err == ESP_ERR_TIMEOUT) return Result::Timeout;
+  return s_last_err == ESP_OK ? Result::Ok : Result::DriverError;
+}
+
+Result receive(Frame& f, uint32_t timeout_ms) {
+  if (!s_running) return Result::InvalidState;
+
+  twai_message_t m;
+  s_last_err = twai_receive(&m, ticks(timeout_ms));
+  if (s_last_err == ESP_ERR_TIMEOUT) return Result::Timeout;
+  if (s_last_err != ESP_OK) return Result::DriverError;
+
+  f.id = m.identifier;
+  f.dlc = m.data_length_code > 8 ? 8 : m.data_length_code;
+  f.extended = m.extd;
+  f.rtr = m.rtr;
+  f.self = m.self;
+  memset(f.data, 0, sizeof(f.data));
+  if (!m.rtr) memcpy(f.data, m.data, f.dlc);
+  return Result::Ok;
+}
+
+Result status(Status& s) {
+  if (!s_running) return Result::InvalidState;
+
+  twai_status_info_t i;
+  s_last_err = twai_get_status_info(&i);
+  if (s_last_err != ESP_OK) return Result::DriverError;
+
+  s.rx_queued = i.msgs_to_rx;
+  s.tx_queued = i.msgs_to_tx;
+  s.tx_errors = i.tx_error_counter;
+  s.rx_errors = i.rx_error_counter;
+  s.tx_failed = i.tx_failed_count;
+  s.rx_missed = i.rx_missed_count;
+  s.rx_overrun = i.rx_overrun_count;
+  s.arb_lost = i.arb_lost_count;
+  s.bus_errors = i.bus_error_count;
+  switch (i.state) {
+    case TWAI_STATE_STOPPED: s.state = "stopped"; break;
+    case TWAI_STATE_RUNNING: s.state = "running"; break;
+    case TWAI_STATE_BUS_OFF: s.state = "bus-off"; break;
+    default: s.state = "recovering"; break;
+  }
+  return Result::Ok;
+}
+
 int lastError() { return (int)s_last_err; }
 
 const char* resultName(Result r) {
@@ -91,6 +156,7 @@ const char* resultName(Result r) {
     case Result::Ok: return "ok";
     case Result::InvalidBitrate: return "invalid bitrate";
     case Result::InvalidState: return "invalid state";
+    case Result::Timeout: return "timeout";
     default: return "driver error";
   }
 }
