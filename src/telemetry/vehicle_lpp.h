@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "gps/gps_track.h"
 #include "vehicle/vehicle_state.h"
 
 // Vehicle telemetry as Cayenne LPP (spec: docs/telemetry.md, issue #31).
@@ -24,6 +25,9 @@ constexpr uint8_t CH_COOLANT = 10;         // LPP temperature, 0.1 C
 constexpr uint8_t CH_LOAD = 11;            // LPP percentage, engine load
 constexpr uint8_t CH_INTAKE = 12;          // LPP temperature, intake air
 constexpr uint8_t CH_FUEL = 13;            // LPP percentage, fuel level
+constexpr uint8_t CH_GPS_TRIP = 14;        // LPP distance, metres travelled per GPS (separate from the OBD trip, channel 3)
+constexpr uint8_t CH_GPS_SPEED = 15;       // LPP analog input, km/h from GPS position change
+constexpr uint8_t CH_GPS_HEADING = 16;     // LPP direction, degrees 0-359
 constexpr uint8_t CH_DTC = 9;              // LPP generic sensor, repeated: kind << 16 | raw code
 
 constexpr uint8_t STATE_VEHICLE_ACTIVE = 1 << 0;
@@ -78,6 +82,18 @@ void encodeVehicle(const vehicle::VehicleSnapshot& s, Lpp& lpp) {
   }
 }
 
+// GPS-derived extras (#42). Latitude, longitude and altitude stay on MeshCore's
+// channel 1. Each field is omitted unless known; none replaces the OBD values.
+template <class Lpp>
+void encodeGps(const gps::GpsTrackState& g, Lpp& lpp) {
+  if (!g.has_fix) return;
+  float trip_m = (float)(g.trip_mm / 1000.0);
+  if (trip_m > (float)TRIP_MAX_M) trip_m = (float)TRIP_MAX_M;
+  lpp.addDistance(CH_GPS_TRIP, trip_m);
+  if (g.has_motion) lpp.addAnalogInput(CH_GPS_SPEED, g.speed_kmh > 300 ? 300 : g.speed_kmh);
+  if (g.has_heading) lpp.addDirection(CH_GPS_HEADING, g.heading_deg);
+}
+
 struct DecodedDtc {
   uint8_t kind = 0;   // vehicle::DtcKind
   uint16_t raw = 0;   // two wire bytes
@@ -104,6 +120,12 @@ struct DecodedVehicle {
   double intake_c = 0;
   bool has_fuel = false;
   double fuel_pct = 0;
+  bool has_gps_trip = false;
+  double gps_trip_m = 0;
+  bool has_gps_speed = false;
+  double gps_speed_kmh = 0;
+  bool has_gps_heading = false;
+  uint16_t gps_heading = 0;
   bool has_dtc_count = false;
   uint8_t dtc_total = 0;
   uint8_t dtc_n = 0;
@@ -163,6 +185,15 @@ inline bool decodeVehicle(const uint8_t* buf, size_t len, DecodedVehicle& out) {
     } else if (ch == CH_FUEL && type == 120) {
       out.has_fuel = true;
       out.fuel_pct = u;
+    } else if (ch == CH_GPS_TRIP && type == 130) {
+      out.has_gps_trip = true;
+      out.gps_trip_m = u / 1000.0;
+    } else if (ch == CH_GPS_SPEED && type == 2) {
+      out.has_gps_speed = true;
+      out.gps_speed_kmh = (int16_t)(uint16_t)u / 100.0;
+    } else if (ch == CH_GPS_HEADING && type == 132) {
+      out.has_gps_heading = true;
+      out.gps_heading = (uint16_t)u;
     } else if (ch == CH_DTC_COUNT && type == 0) {
       out.has_dtc_count = true;
       out.dtc_total = (uint8_t)u;

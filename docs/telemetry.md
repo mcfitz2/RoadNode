@@ -31,6 +31,9 @@ MeshCore clients can already decode and display it. No custom packet type.
 | 11 | Engine load | percentage | 0-100 % | 3 | PID 04, same rule |
 | 12 | Intake air temp | temperature | 0.1 C | 4 | PID 0F, same rule |
 | 13 | Fuel level | percentage | 0-100 % | 3 | PID 2F, same rule |
+| 14 | GPS trip distance | distance | metres since trip start, cap 4,294,000 | 6 | needs a current GNSS fix |
+| 15 | GPS speed | analog input | km/h from position change | 4 | needs a fix and two accepted steps |
+| 16 | GPS heading | direction | degrees 0-359 | 4 | after the first accepted step |
 
 Fields with no fresh value are **omitted, never sent as zero**.
 
@@ -157,3 +160,29 @@ per opted-in client (0.1 to 0.2 % duty cycle); high-priority alerts (parked, DTC
 so a poor link can multiply their share. At about 120 mA transmit current (SX1262 at +22 dBm, from
 the datasheet, not measured on this board) 7 s per hour is roughly 0.25 mAh. Receive listening, which
 MeshCore does continuously, and the advert interval are unchanged by this project and dominate battery use.
+
+## GPS (#41, #42)
+
+**GNSS (#41)** reuses MeshCore's `MicroNMEALocationProvider` through `EnvironmentSensorManager`: it
+parses NMEA, updates `node_lat/lon/altitude` once a second and sets the RTC from GPS time. No
+second parser. `-D PERSISTANT_GPS` turns GNSS on at boot when the module is detected (stock default
+is off until the admin `gps 1` setting). Pins are MeshCore's heltec_v4 map, not the original plan table:
+RX 38, TX 39, reset 42 (active low), enable 34 (active low); see `docs/meshcore.md`. Plan's wake 40 and PPS 41 are not used.
+
+**GPS motion (#42)** is computed by `src/gps/gps_track.{h,cpp}` from successive fixes, sampled at
+about 1 Hz: trip distance, speed and heading, in channels 14-16 above. Position (lat, lon, altitude)
+stays on MeshCore's channel 1.
+
+- Separate from OBD: its own accumulator (`GpsTrack`), reset when the OBD trip starts. The OBD
+  odometer, trip and speed (channels 2-4) never read it and it never replaces them.
+- A fix counts as a step only if it is 8 m from the last accepted one, so stationary GNSS wander adds
+  nothing; speeds under about 30 km/h are resolved over several seconds. Speed reads 0 after 5 s with no step.
+- No fix for 10 s: fields are omitted, the gap is not integrated. A step implying over 300 km/h is a jump and ignored.
+- Chord distance between fixes underestimates curves a little; the OBD distance stays the reference.
+- Privacy: channels 14-16 are sent only to requesters with location permission and only while GNSS is
+  active, the same rule as channel 1. Adverts still never carry live position.
+- Compatibility: appended channels only; the existing bytes are unchanged (tested). Worst case with
+  everything present is about 134 bytes plus channel 1, within the 180 byte limit.
+
+Verified by host tests only (synthetic fixes). Not verified on hardware: a real fix and NMEA parsing,
+RTC set from GPS time, pins, how stock clients display channels 14-16.
