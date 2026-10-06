@@ -16,36 +16,86 @@ void tearDown() {}
 
 void test_boot_with_quiet_bus_is_not_parked() {
   AlertLogic a;
-  AlertConditions c = a.update(snap(false, false));
+  AlertConditions c = a.update(snap(false, false), 0);
   TEST_ASSERT_FALSE(c.started);
   TEST_ASSERT_FALSE(c.parked);
 }
 
 void test_engine_on_is_started_not_parked() {
   AlertLogic a;
-  AlertConditions c = a.update(snap(true, true));
+  AlertConditions c = a.update(snap(true, true), 0);
   TEST_ASSERT_TRUE(c.started);
   TEST_ASSERT_FALSE(c.parked);
 }
 
 void test_parked_after_drive_once_bus_quiet() {
   AlertLogic a;
-  a.update(snap(true, true));
-  AlertConditions idle = a.update(snap(false, true));  // engine off, bus still awake
+  a.update(snap(true, true), 0);
+  AlertConditions idle = a.update(snap(false, true), 0);  // engine off, bus still awake
   TEST_ASSERT_FALSE(idle.parked);
-  AlertConditions quiet = a.update(snap(false, false));
+  AlertConditions quiet = a.update(snap(false, false), 0);
   TEST_ASSERT_TRUE(quiet.parked);
   TEST_ASSERT_FALSE(quiet.started);
 }
 
 void test_restart_clears_parked_and_rearms() {
   AlertLogic a;
-  a.update(snap(true, true));
-  TEST_ASSERT_TRUE(a.update(snap(false, false)).parked);
-  AlertConditions c = a.update(snap(true, true));
+  a.update(snap(true, true), 0);
+  TEST_ASSERT_TRUE(a.update(snap(false, false), 0).parked);
+  AlertConditions c = a.update(snap(true, true), 0);
   TEST_ASSERT_TRUE(c.started);
   TEST_ASSERT_FALSE(c.parked);
-  TEST_ASSERT_TRUE(a.update(snap(false, false)).parked);
+  TEST_ASSERT_TRUE(a.update(snap(false, false), 0).parked);
+}
+
+static VehicleSnapshot moving(float kmh) {
+  VehicleSnapshot s = snap(true, true);
+  s.has_speed = true;
+  s.speed_kmh = kmh;
+  return s;
+}
+
+static const uint32_t MIN = 60u * 1000u;
+
+void test_periodic_first_report_one_interval_after_start() {
+  AlertLogic a;
+  TEST_ASSERT_FALSE(a.update(moving(80), 0).periodic);
+  TEST_ASSERT_FALSE(a.update(moving(80), 14 * MIN).periodic);
+  TEST_ASSERT_TRUE(a.update(moving(80), 15 * MIN).periodic);
+}
+
+void test_periodic_held_for_window_then_released_then_repeats() {
+  AlertLogic a;
+  a.update(moving(80), 0);
+  TEST_ASSERT_TRUE(a.update(moving(80), 15 * MIN).periodic);
+  TEST_ASSERT_TRUE(a.update(moving(80), 19 * MIN).periodic);   // still inside 5 min hold
+  TEST_ASSERT_FALSE(a.update(moving(80), 20 * MIN).periodic);  // released so alertIf re-arms
+  TEST_ASSERT_FALSE(a.update(moving(80), 29 * MIN).periodic);
+  TEST_ASSERT_TRUE(a.update(moving(80), 30 * MIN).periodic);
+}
+
+void test_periodic_waits_until_moving() {
+  AlertLogic a;
+  a.update(moving(80), 0);
+  TEST_ASSERT_FALSE(a.update(moving(0), 20 * MIN).periodic);   // due but stopped
+  TEST_ASSERT_FALSE(a.update(snap(true, true), 21 * MIN).periodic);  // speed unknown
+  TEST_ASSERT_TRUE(a.update(moving(60), 22 * MIN).periodic);
+}
+
+void test_periodic_stops_and_resets_when_engine_off() {
+  AlertLogic a;
+  a.update(moving(80), 0);
+  TEST_ASSERT_TRUE(a.update(moving(80), 15 * MIN).periodic);
+  TEST_ASSERT_FALSE(a.update(snap(false, true), 16 * MIN).periodic);
+  TEST_ASSERT_FALSE(a.update(moving(80), 17 * MIN).periodic);  // new start, timer restarts
+  TEST_ASSERT_TRUE(a.update(moving(80), 32 * MIN).periodic);
+}
+
+void test_periodic_survives_millis_wrap() {
+  AlertLogic a;
+  uint32_t t0 = 0xFFFFFFFFu - 5 * MIN;
+  a.update(moving(80), t0);
+  TEST_ASSERT_TRUE(a.update(moving(80), t0 + 15 * MIN).periodic);
 }
 
 int main() {
@@ -54,5 +104,10 @@ int main() {
   RUN_TEST(test_engine_on_is_started_not_parked);
   RUN_TEST(test_parked_after_drive_once_bus_quiet);
   RUN_TEST(test_restart_clears_parked_and_rearms);
+  RUN_TEST(test_periodic_first_report_one_interval_after_start);
+  RUN_TEST(test_periodic_held_for_window_then_released_then_repeats);
+  RUN_TEST(test_periodic_waits_until_moving);
+  RUN_TEST(test_periodic_stops_and_resets_when_engine_off);
+  RUN_TEST(test_periodic_survives_millis_wrap);
   return UNITY_END();
 }

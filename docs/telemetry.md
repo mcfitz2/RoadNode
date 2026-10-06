@@ -66,6 +66,13 @@ last valid GPS fix, or "(no GPS fix)" if none since boot.
 |-------|----------|-----------|
 | `Vehicle started at <lat>,<lon>` | low (one attempt) | engine running |
 | `Vehicle parked at <lat>,<lon>` | high (retries until ACK) | driven, engine off, CAN bus quiet |
+| `Vehicle moving at <lat>,<lon>` | low (one attempt) | engine running and speed >= 5 km/h, every 15 min |
+
+The periodic report first fires one interval after engine start, then every interval
+while moving (set `-D PERIODIC_ALERT_MINUTES=n`). If due while stopped it waits for the
+next moving check. MeshCore cancels a queued alert when its condition drops, so the
+condition is held true for a 5 minute window to cover send and retries, then released
+so it can re-arm. Checks run on MeshCore's 60 s sensor read.
 
 Each fires once per false->true edge; it is not a position stream. Logic:
 `src/vehicle/alert_logic.h`; wiring: `src/node/main.cpp` (copy of the vendor

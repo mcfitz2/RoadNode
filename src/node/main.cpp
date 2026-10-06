@@ -21,8 +21,16 @@ public:
 protected:
   /* ========================== custom logic here ========================== */
   Trigger low_batt, critical_batt;
-  Trigger vehicle_started, vehicle_parked;
-  roadnode::vehicle::AlertLogic vehicle_alerts;
+  Trigger vehicle_started, vehicle_parked, vehicle_periodic;
+  roadnode::vehicle::AlertLogic vehicle_alerts = roadnode::vehicle::AlertLogic(alertConfig());
+
+  static roadnode::vehicle::AlertConfig alertConfig() {
+    roadnode::vehicle::AlertConfig cfg;
+#ifdef PERIODIC_ALERT_MINUTES
+    cfg.periodic_interval_ms = (uint32_t)PERIODIC_ALERT_MINUTES * 60u * 1000u;
+#endif
+    return cfg;
+  }
 
   // Alerts go only to ACL clients that opted in (PERM_RECV_ALERTS_*), encrypted.
   // node_lat/lon hold the last valid GPS fix; 0,0 means no fix since boot.
@@ -42,13 +50,15 @@ protected:
     alertIf(batt_voltage < 3.4f, critical_batt, HIGH_PRI_ALERT, "Battery is critical!");
     alertIf(batt_voltage < 3.6f, low_batt, LOW_PRI_ALERT, "Battery is low");
 
-    roadnode::vehicle::AlertConditions c =
-        vehicle_alerts.update(roadnode::vehicle::VehicleRuntime::telemetry().snapshot());
+        roadnode::vehicle::VehicleSnapshot snap = roadnode::vehicle::VehicleRuntime::telemetry().snapshot();
+    roadnode::vehicle::AlertConditions c = vehicle_alerts.update(snap, millis());
     char text[64];
     positionText(text, sizeof(text), "Vehicle started");
     alertIf(c.started, vehicle_started, LOW_PRI_ALERT, text);
     positionText(text, sizeof(text), "Vehicle parked");
     alertIf(c.parked, vehicle_parked, HIGH_PRI_ALERT, text);
+    positionText(text, sizeof(text), "Vehicle moving");
+    alertIf(c.periodic, vehicle_periodic, LOW_PRI_ALERT, text);
   }
 
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {
