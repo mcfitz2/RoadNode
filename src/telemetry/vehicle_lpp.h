@@ -20,6 +20,10 @@ constexpr uint8_t CH_RPM = 5;              // LPP generic sensor, rpm
 constexpr uint8_t CH_STATE = 6;            // LPP digital input, bit flags
 constexpr uint8_t CH_VEHICLE_BATTERY = 7;  // LPP voltage, volts
 constexpr uint8_t CH_DTC_COUNT = 8;        // LPP digital input, total DTCs reported by the ECU (cap 255)
+constexpr uint8_t CH_COOLANT = 10;         // LPP temperature, 0.1 C
+constexpr uint8_t CH_LOAD = 11;            // LPP percentage, engine load
+constexpr uint8_t CH_INTAKE = 12;          // LPP temperature, intake air
+constexpr uint8_t CH_FUEL = 13;            // LPP percentage, fuel level
 constexpr uint8_t CH_DTC = 9;              // LPP generic sensor, repeated: kind << 16 | raw code
 
 constexpr uint8_t STATE_VEHICLE_ACTIVE = 1 << 0;
@@ -36,6 +40,8 @@ constexpr uint32_t TRIP_MAX_M = 4294000;
 
 // Fields without a fresh value are omitted, never sent as zero. Total, trip
 // and state are always present.
+inline uint32_t pct(float v) { return v <= 0 ? 0 : v >= 100 ? 100 : (uint32_t)(v + 0.5f); }
+
 template <class Lpp>
 void encodeVehicle(const vehicle::VehicleSnapshot& s, Lpp& lpp) {
   uint64_t units = s.total_mm / TOTAL_UNIT_MM;
@@ -57,6 +63,12 @@ void encodeVehicle(const vehicle::VehicleSnapshot& s, Lpp& lpp) {
   lpp.addDigitalInput(CH_STATE, state);
 
   if (s.has_battery) lpp.addVoltage(CH_VEHICLE_BATTERY, s.battery_v);
+
+  // Slow engine values, each only while fresh.
+  if (s.has_coolant) lpp.addTemperature(CH_COOLANT, s.coolant_c);
+  if (s.has_load) lpp.addPercentage(CH_LOAD, pct(s.load_pct));
+  if (s.has_intake) lpp.addTemperature(CH_INTAKE, s.intake_c);
+  if (s.has_fuel) lpp.addPercentage(CH_FUEL, pct(s.fuel_pct));
 
   // DTCs only after a successful read (0 codes is a real answer, unknown is omitted).
   if (s.has_dtcs) {
@@ -84,6 +96,14 @@ struct DecodedVehicle {
   uint8_t state = 0;
   bool has_battery = false;
   double battery_v = 0;
+  bool has_coolant = false;
+  double coolant_c = 0;
+  bool has_load = false;
+  double load_pct = 0;
+  bool has_intake = false;
+  double intake_c = 0;
+  bool has_fuel = false;
+  double fuel_pct = 0;
   bool has_dtc_count = false;
   uint8_t dtc_total = 0;
   uint8_t dtc_n = 0;
@@ -131,6 +151,18 @@ inline bool decodeVehicle(const uint8_t* buf, size_t len, DecodedVehicle& out) {
     } else if (ch == CH_VEHICLE_BATTERY && type == 116) {
       out.has_battery = true;
       out.battery_v = u / 100.0;
+    } else if (ch == CH_COOLANT && type == 103) {
+      out.has_coolant = true;
+      out.coolant_c = (int16_t)(uint16_t)u / 10.0;
+    } else if (ch == CH_LOAD && type == 120) {
+      out.has_load = true;
+      out.load_pct = u;
+    } else if (ch == CH_INTAKE && type == 103) {
+      out.has_intake = true;
+      out.intake_c = (int16_t)(uint16_t)u / 10.0;
+    } else if (ch == CH_FUEL && type == 120) {
+      out.has_fuel = true;
+      out.fuel_pct = u;
     } else if (ch == CH_DTC_COUNT && type == 0) {
       out.has_dtc_count = true;
       out.dtc_total = (uint8_t)u;

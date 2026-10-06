@@ -33,6 +33,16 @@ struct VehicleSnapshot {
   bool has_battery = false;
   float battery_v = 0;
 
+  // Slow-changing engine values (polled one PID at a time, see PollerConfig).
+  bool has_coolant = false;
+  float coolant_c = 0;
+  bool has_load = false;
+  float load_pct = 0;
+  bool has_intake = false;
+  float intake_c = 0;
+  bool has_fuel = false;
+  float fuel_pct = 0;
+
   // Last successful DTC read (modes 03/07/0A merged). Kept while OBD is briefly
   // lost; has_dtcs stays false until the first successful read.
   static constexpr size_t MAX_DTCS = 12;

@@ -27,6 +27,10 @@ MeshCore clients can already decode and display it. No custom packet type.
 | 7 | Vehicle battery | voltage | volts, 0.01 | 4 | only if known |
 | 8 | DTC count | digital input | total codes the ECU reported, capped 255 | 3 | only after a successful DTC read (0 = none) |
 | 9 | DTC entry (repeated) | generic sensor | `kind << 16 \| raw`, up to 12 entries | 6 each | one per code |
+| 10 | Coolant temp | temperature | 0.1 C | 4 | only if PID 05 supported and read within 30 s |
+| 11 | Engine load | percentage | 0-100 % | 3 | PID 04, same rule |
+| 12 | Intake air temp | temperature | 0.1 C | 4 | PID 0F, same rule |
+| 13 | Fuel level | percentage | 0-100 % | 3 | PID 2F, same rule |
 
 Fields with no fresh value are **omitted, never sent as zero**.
 
@@ -38,7 +42,7 @@ for a few request timeouts and would stretch the gap between speed samples. If t
 for 10 minutes a read is forced. New codes can therefore be reported late on a long drive. Each entry on channel 9 is `kind << 16 | raw`, where kind is 1 stored,
 2 pending, 3 permanent and raw is the two wire bytes. Decode: top 2 bits of the high byte
 pick P/C/B/U, next 2 bits the first digit, then three hex digits (`0x0301` is `P0301`).
-Worst case (12 codes) is 29 + 3 + 72 = 104 bytes, plus MeshCore's channel 1, within the 180 limit.
+Worst case (12 codes) is 29 + 3 + 72 = 104 bytes (120 with the four slow values), plus MeshCore's channel 1, within the 180 limit.
 If the ECU reports more than 12, the count (channel 8) still shows the real total.
 A silent mode (many ECUs ignore 0A) is skipped; DTCs are omitted until stored (03) has answered.
 **Nothing that clears codes can be transmitted:** `ObdManager` refuses every mode outside
@@ -106,3 +110,11 @@ Each fires once per false->true edge; it is not a position stream. Logic:
   CayenneLPP wire rules, not the real library.
 - Firmware build instantiates the encoder with the real `CayenneLPP`, so it compiles
   against the real API, but real wire bytes have not been compared on a device or in a MeshCore client.
+
+## Slow engine values (#17)
+
+Channels 10-13 are polled one PID per 2.5 s, round-robin (each refreshed about every 10 s), so
+speed sampling keeps its normal spacing; the poller test checks distance stays within 1.25 % with
+them enabled. A value is sent only while its last read is under 30 s old and the ECU advertised the
+PID. Values are checked against decoders with byte vectors in `test_obd`; not yet verified against a
+scan tool on the RAV4.

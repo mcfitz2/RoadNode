@@ -253,6 +253,79 @@ void test_vin_not_in_snapshot_bytes() {
   TEST_ASSERT_FALSE(found);
 }
 
+// Adds Mode 01 PIDs 04, 05, 0F, 2F (coolant 90 C, load ~50%, intake 25 C, fuel ~60%)
+// on top of the Rig's ECU, with its own capability masks.
+struct SlowEcu {
+  bool answer = true;
+  std::vector<uint8_t> pids_asked;
+
+  void attach(Rig& r) {
+    auto prev = r.bus.on_send;
+    r.bus.on_send = [this, prev, &r](const CanFrame& f) {
+      if (f.id == 0x7DF && f.data[1] == 0x01) {
+        uint8_t pid = f.data[2];
+        if (pid == 0x00) return r.bus.push(0x7E8, {6, 0x41, 0x00, 0x18, 0x1A, 0x00, 0x01});
+        if (pid == 0x20) return r.bus.push(0x7E8, {6, 0x41, 0x20, 0x00, 0x02, 0x00, 0x00});
+        if (pid == 0x04 || pid == 0x05 || pid == 0x0F || pid == 0x2F) {
+          pids_asked.push_back(pid);
+          if (!answer) return;
+          uint8_t v = pid == 0x04 ? 128 : pid == 0x05 ? 130 : pid == 0x0F ? 65 : 153;
+          return r.bus.push(0x7E8, {3, 0x41, pid, v});
+        }
+      }
+      prev(f);
+    };
+  }
+};
+
+void test_slow_pids_polled_round_robin_not_every_cycle() {
+  Rig r;
+  SlowEcu e;
+  e.attach(r);
+  r.ecu.speed = 50;
+  r.run(30);
+  // 1 request per 2.5 s (3 s at 1 Hz steps), not 4 per cycle
+  TEST_ASSERT_TRUE(e.pids_asked.size() >= 8 && e.pids_asked.size() <= 13);
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_TRUE(s.has_coolant && s.has_load && s.has_intake && s.has_fuel);
+  TEST_ASSERT_FLOAT_WITHIN(0.5, 90, s.coolant_c);
+  TEST_ASSERT_FLOAT_WITHIN(0.5, 50.2, s.load_pct);
+  TEST_ASSERT_FLOAT_WITHIN(0.5, 25, s.intake_c);
+  TEST_ASSERT_FLOAT_WITHIN(0.5, 60, s.fuel_pct);
+}
+
+void test_slow_pids_unknown_without_ecu_support() {
+  Rig r;  // base ECU does not advertise 04/05/0F/2F
+  r.ecu.speed = 50;
+  r.run(30);
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_FALSE(s.has_coolant || s.has_load || s.has_intake || s.has_fuel);
+}
+
+void test_slow_values_go_stale() {
+  Rig r;
+  SlowEcu e;
+  e.attach(r);
+  r.run(20);
+  TEST_ASSERT_TRUE(r.telem.snapshot().has_coolant);
+  e.answer = false;
+  r.run(80);  // values stop refreshing; >30 s old reads as unknown
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_FALSE(s.has_coolant || s.has_fuel);
+}
+
+void test_slow_polling_keeps_speed_spacing() {
+  Rig r;
+  SlowEcu e;
+  e.attach(r);
+  r.ecu.speed = 72;  // 20 m/s
+  r.run(120);
+  uint64_t before = r.telem.snapshot().trip_mm;
+  r.run(100);
+  double m = (double)(r.telem.snapshot().trip_mm - before) / 1000.0;
+  TEST_ASSERT_FLOAT_WITHIN(25.0, 2000.0, m);  // 100 s at 72 km/h, within 1.25%
+}
+
 void setUp() {}
 void tearDown() {}
 
@@ -559,6 +632,10 @@ void test_speed_samples_keep_spacing_while_moving() {
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_slow_pids_polled_round_robin_not_every_cycle);
+  RUN_TEST(test_slow_pids_unknown_without_ecu_support);
+  RUN_TEST(test_slow_values_go_stale);
+  RUN_TEST(test_slow_polling_keeps_speed_spacing);
   RUN_TEST(test_vin_read_once_stopped_and_stored);
   RUN_TEST(test_vin_deferred_while_moving);
   RUN_TEST(test_vin_unsupported_not_retried);

@@ -37,6 +37,8 @@ public:
   void addDistance(uint8_t ch, float v) { add(ch, 130, 4, 1000, false, v); }
   void addAnalogInput(uint8_t ch, float v) { add(ch, 2, 2, 100, true, v); }
   void addDigitalInput(uint8_t ch, uint32_t v) { add(ch, 0, 1, 1, false, (float)v); }
+  void addTemperature(uint8_t ch, float v) { add(ch, 103, 2, 10, true, v); }
+  void addPercentage(uint8_t ch, uint32_t v) { add(ch, 120, 1, 1, false, (float)v); }
   void addVoltage(uint8_t ch, float v) { add(ch, 116, 2, 100, false, v); }
 };
 
@@ -270,6 +272,61 @@ void test_dtcs_worst_case_fits_payload() {
   TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
 }
 
+void test_slow_values_roundtrip() {
+  VehicleSnapshot s = driving();
+  s.has_coolant = true;
+  s.coolant_c = 90.5f;
+  s.has_load = true;
+  s.load_pct = 37.6f;
+  s.has_intake = true;
+  s.intake_c = -12.3f;
+  s.has_fuel = true;
+  s.fuel_pct = 62.0f;
+  ModelLpp lpp;
+  encodeVehicle(s, lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_TRUE(d.has_coolant);
+  TEST_ASSERT_FLOAT_WITHIN(0.11, 90.5, d.coolant_c);
+  TEST_ASSERT_EQUAL(38, (int)d.load_pct);  // rounded
+  TEST_ASSERT_FLOAT_WITHIN(0.11, -12.3, d.intake_c);
+  TEST_ASSERT_EQUAL(62, (int)d.fuel_pct);
+}
+
+void test_slow_values_omitted_when_unknown() {
+  VehicleSnapshot s = driving();
+  ModelLpp lpp;
+  encodeVehicle(s, lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_FALSE(d.has_coolant || d.has_load || d.has_intake || d.has_fuel);
+}
+
+void test_percentages_clamped() {
+  VehicleSnapshot s = driving();
+  s.has_load = s.has_fuel = true;
+  s.load_pct = 140;
+  s.fuel_pct = -3;
+  ModelLpp lpp;
+  encodeVehicle(s, lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_EQUAL(100, (int)d.load_pct);
+  TEST_ASSERT_EQUAL(0, (int)d.fuel_pct);
+}
+
+void test_worst_case_with_slow_values_fits() {
+  VehicleSnapshot s = driving();
+  s.has_coolant = s.has_load = s.has_intake = s.has_fuel = true;
+  s.has_dtcs = true;
+  s.dtc_total = 12;
+  s.dtc_count = (uint8_t)VehicleSnapshot::MAX_DTCS;
+  ModelLpp lpp(180);
+  encodeVehicle(s, lpp);
+  TEST_ASSERT_FALSE(lpp.overflow);
+  TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_roundtrip_all_fields);
@@ -287,5 +344,9 @@ int main() {
   RUN_TEST(test_dtcs_roundtrip_and_size);
   RUN_TEST(test_dtcs_zero_codes_sends_count_only_and_unknown_sends_nothing);
   RUN_TEST(test_dtcs_worst_case_fits_payload);
+  RUN_TEST(test_slow_values_roundtrip);
+  RUN_TEST(test_slow_values_omitted_when_unknown);
+  RUN_TEST(test_percentages_clamped);
+  RUN_TEST(test_worst_case_with_slow_values_fits);
   return UNITY_END();
 }

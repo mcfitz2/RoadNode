@@ -85,6 +85,31 @@ void VehiclePoller::pollDtcs() {
   memcpy(_s.dtc_kind, next.dtc_kind, sizeof(_s.dtc_kind));
 }
 
+// Coolant, load, intake temperature and fuel level change slowly. One request per
+// slow_pid_interval_ms, round-robin, so speed sampling stays at its normal spacing.
+void VehiclePoller::pollSlowPid(uint32_t now_ms) {
+  if (!_cfg.slow_pid_interval_ms) return;
+  if (!_slow_clock_set) {
+    _slow_clock_set = true;
+    _slow_last_ms = now_ms;
+    return;
+  }
+  if (now_ms - _slow_last_ms < _cfg.slow_pid_interval_ms) return;
+  _slow_last_ms = now_ms;
+  static const uint8_t pids[4] = {obd::PID_COOLANT_TEMP, obd::PID_ENGINE_LOAD, obd::PID_INTAKE_TEMP, obd::PID_FUEL_LEVEL};
+  uint8_t i = _slow_idx;
+  _slow_idx = (uint8_t)((_slow_idx + 1) % 4);
+  float v;
+  if (!pollValue(pids[i], v, now_ms)) return;
+  _slow_ms[i] = now_ms;
+  switch (i) {
+    case 0: _s.coolant_c = v; break;
+    case 1: _s.load_pct = v; break;
+    case 2: _s.intake_c = v; break;
+    default: _s.fuel_pct = v; break;
+  }
+}
+
 // One VIN read per boot, deferred like DTCs while moving. The result only goes to
 // VehicleIdentity (local storage); it never reaches the snapshot or telemetry.
 void VehiclePoller::pollVin(uint32_t now_ms) {
@@ -180,6 +205,8 @@ void VehiclePoller::step(uint32_t now_ms) {
     }
   }
 
+  pollSlowPid(now_ms);
+
   // DTCs change rarely: poll at a slow rate, only while the ECU is answering.
   // Deferred while moving so the speed samples keep their 1 Hz spacing; an unreadable
   // speed does not defer (distance is not integrating then anyway).
@@ -211,6 +238,11 @@ void VehiclePoller::step(uint32_t now_ms) {
   _s.has_speed = fresh(_speed_ms);
   _s.has_rpm = fresh(_rpm_ms);
   _s.has_battery = fresh(_batt_ms);
+  auto fresh_slow = [&](uint32_t t) { return t != 0 && (uint32_t)age(t) <= _cfg.slow_stale_ms; };
+  _s.has_coolant = fresh_slow(_slow_ms[0]);
+  _s.has_load = fresh_slow(_slow_ms[1]);
+  _s.has_intake = fresh_slow(_slow_ms[2]);
+  _s.has_fuel = fresh_slow(_slow_ms[3]);
 
   if (_obd.anyFrameSeen()) {
     _s.ever_can_activity = true;

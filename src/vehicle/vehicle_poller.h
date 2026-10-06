@@ -18,6 +18,8 @@ struct PollerConfig {
   uint32_t obd_lost_after_fails = 3;        // consecutive failed polls before obd_connected clears
   uint32_t discovery_retry_ms = 5000;
   uint32_t bus_recovery_interval_ms = 1000;
+  uint32_t slow_pid_interval_ms = 2500;     // one slow PID per step this often, round-robin of 4
+  uint32_t slow_stale_ms = 30000;           // slow values older than this read as unknown
   uint32_t vin_retry_ms = 30000;            // between VIN read attempts
   uint32_t vin_max_attempts = 5;            // per boot; a negative response stops earlier
   uint32_t value_stale_ms = 3000;           // live values older than this read as unknown
@@ -68,6 +70,7 @@ private:
   bool pollValue(uint8_t pid, float& v, uint32_t now_ms);
   void pollDtcs();
   void pollVin(uint32_t now_ms);
+  void pollSlowPid(uint32_t now_ms);
   void copyVehicleId();
 
   obd::ObdManager& _obd;
@@ -85,6 +88,10 @@ private:
   bool _in_bus_off = false;
   uint32_t _last_recovery = 0;
   bool _recovery_started = false;
+  uint32_t _slow_ms[4] = {0, 0, 0, 0};
+  uint32_t _slow_last_ms = 0;
+  bool _slow_clock_set = false;
+  uint8_t _slow_idx = 0;
   uint32_t _speed_ms = 0, _rpm_ms = 0, _batt_ms = 0;
   VehicleIdentity* _identity = nullptr;
   bool _vin_done = false;
