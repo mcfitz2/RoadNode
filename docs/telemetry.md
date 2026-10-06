@@ -56,6 +56,22 @@ Do not set `adv_loc share`.
 Anyone with the admin/guest password can join the ACL and read location, so the default
 password must be changed before in-car use (#51). The vehicle id is not in the payload.
 
+## Alerts
+
+Besides pull telemetry, the node pushes two encrypted text alerts to ACL clients that
+opted in (`PERM_RECV_ALERTS_LO` / `_HI`), via MeshCore's alert queue. Position is the
+last valid GPS fix, or "(no GPS fix)" if none since boot.
+
+| Alert | Priority | Condition |
+|-------|----------|-----------|
+| `Vehicle started at <lat>,<lon>` | low (one attempt) | engine running |
+| `Vehicle parked at <lat>,<lon>` | high (retries until ACK) | driven, engine off, CAN bus quiet |
+
+Each fires once per false->true edge; it is not a position stream. Logic:
+`src/vehicle/alert_logic.h`; wiring: `src/node/main.cpp` (copy of the vendor
+`simple_sensor/main.cpp`, re-diff on MeshCore bumps). No theft/movement-while-off
+alert yet. Delivery is not durable: with no path it floods and gives up after retries.
+
 ## Verification status
 
 - Encode/decode round trips and size are unit tested on the host against a model of the
