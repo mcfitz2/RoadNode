@@ -25,6 +25,7 @@ public:
 
   // Short identifier stored with the record (e.g. "RAV4").
   void setVehicleId(const char* id);
+  const char* vehicleId() const { return _vehicle_id; }
 
   // Optional unix time source for last_trip_timestamp (0 = unknown).
   void setTime(uint32_t unix_seconds) { _unix_time = unix_seconds; }

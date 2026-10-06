@@ -28,6 +28,8 @@ public:
     return true;
   }
   uint32_t nowMs() override { return millis(); }
+  bool busOff() override { return can::busOff(); }
+  void recover() override { can::recover(); }
 };
 
 }  // namespace can

@@ -31,6 +31,12 @@ bool decodeIntakeTemp(const uint8_t* d, uint8_t len, float& deg_c) { return deco
 
 bool decodeFuelLevel(const uint8_t* d, uint8_t len, float& percent) { return decodeEngineLoad(d, len, percent); }
 
+bool decodeModuleVoltage(const uint8_t* d, uint8_t len, float& volts) {
+  if (len < 2) return false;
+  volts = (d[0] * 256 + d[1]) / 1000.0f;
+  return true;
+}
+
 bool decodePid(uint8_t pid, const uint8_t* d, uint8_t len, float& value) {
   switch (pid) {
     case PID_SPEED: return decodeSpeed(d, len, value);
@@ -39,6 +45,7 @@ bool decodePid(uint8_t pid, const uint8_t* d, uint8_t len, float& value) {
     case PID_ENGINE_LOAD: return decodeEngineLoad(d, len, value);
     case PID_INTAKE_TEMP: return decodeIntakeTemp(d, len, value);
     case PID_FUEL_LEVEL: return decodeFuelLevel(d, len, value);
+    case PID_MODULE_VOLTAGE: return decodeModuleVoltage(d, len, value);
     default: return false;
   }
 }
@@ -51,7 +58,17 @@ bool CapabilityTable::load(uint8_t base, const uint8_t* mask, uint8_t len) {
   return true;
 }
 
-bool CapabilityTable::rangeKnown(uint8_t pid) const { return _known & (1u << (pid >> 5)); }
+bool CapabilityTable::rangeKnown(uint8_t pid) const {
+  if (pid == 0) return true;
+  return _known & (1u << ((pid - 1) >> 5));
+}
+
+void CapabilityTable::markRemainingUnsupported(uint8_t base) {
+  for (uint8_t idx = (base >> 5) + 1; idx < 8; idx++) {
+    _mask[idx] = 0;
+    _known |= (uint8_t)(1u << idx);
+  }
+}
 
 bool CapabilityTable::supported(uint8_t pid) const {
   if (pid == 0) return true;  // PID 00 is the discovery PID itself

@@ -25,6 +25,9 @@ public:
   // Waits up to timeout_ms; false if nothing arrived.
   virtual bool receive(CanFrame& f, uint32_t timeout_ms) = 0;
   virtual uint32_t nowMs() = 0;
+  // Controller bus-off state and recovery trigger. Defaults suit buses without either.
+  virtual bool busOff() { return false; }
+  virtual void recover() {}
 };
 
 enum class Status : uint8_t {
@@ -67,6 +70,12 @@ public:
   // Queries PID 00/20/40... and fills the table. Returns Ok if at least PID 00 answered.
   Status discover();
   const CapabilityTable& capabilities() const { return _caps; }
+  void clearCapabilities() { _caps.clear(); }
+
+  // Any frame at all from a responder ID, whether or not it answered us.
+  // Used to tell a live vehicle bus from a silent one.
+  bool anyFrameSeen() const { return _frames_seen != 0; }
+  uint32_t lastFrameMs() const { return _last_frame_ms; }
 
   // Mode 09 PID 02. Writes a NUL-terminated 17-character VIN.
   Status readVin(char vin[18]);
@@ -80,6 +89,8 @@ private:
   const VehicleProfile* _profile;
   CapabilityTable _caps;
   bool _enabled = false;
+  uint32_t _frames_seen = 0;
+  uint32_t _last_frame_ms = 0;
 };
 
 // 17 characters, no I/O/Q, and a valid North American check digit (position 9).

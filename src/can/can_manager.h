@@ -76,6 +76,13 @@ Result receive(Frame& f, uint32_t timeout_ms);
 
 Result status(Status& s);
 
+// Bus-off recovery: starts the driver's recovery sequence when bus-off, and
+// restarts the controller once it has stopped. Safe to call repeatedly.
+Result recover();
+
+// True while the controller is in the bus-off state.
+bool busOff();
+
 // Last esp_err_t returned by the driver when a call returned Result::DriverError.
 int lastError();
 

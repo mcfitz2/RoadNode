@@ -149,6 +149,27 @@ Result status(Status& s) {
   return Result::Ok;
 }
 
+Result recover() {
+  if (!s_running) return Result::InvalidState;
+  twai_status_info_t i;
+  s_last_err = twai_get_status_info(&i);
+  if (s_last_err != ESP_OK) return Result::DriverError;
+  if (i.state == TWAI_STATE_BUS_OFF) {
+    s_last_err = twai_initiate_recovery();
+  } else if (i.state == TWAI_STATE_STOPPED) {
+    s_last_err = twai_start();
+  } else {
+    return Result::Ok;  // running or already recovering
+  }
+  return s_last_err == ESP_OK ? Result::Ok : Result::DriverError;
+}
+
+bool busOff() {
+  if (!s_running) return false;
+  twai_status_info_t i;
+  return twai_get_status_info(&i) == ESP_OK && i.state == TWAI_STATE_BUS_OFF;
+}
+
 int lastError() { return (int)s_last_err; }
 
 const char* resultName(Result r) {

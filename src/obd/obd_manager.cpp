@@ -43,6 +43,8 @@ Status ObdManager::receiveMessage(uint8_t mode, uint8_t pid, uint8_t* msg, size_
     if (rem == 0) return Status::Timeout;
     CanFrame f;
     if (!_bus.receive(f, rem)) return Status::Timeout;
+    _frames_seen++;
+    _last_frame_ms = _bus.nowMs();
     if (!accepts(f.id) || f.dlc < 2) continue;
     if (assembling && f.id != src) continue;
 
@@ -143,7 +145,10 @@ Status ObdManager::discover() {
     if (st != Status::Ok) return any ? Status::Ok : st;
     if (!_caps.load(base, r.data, (uint8_t)r.len)) return any ? Status::Ok : Status::Malformed;
     any = true;
-    if (!_caps.hasNextRange(base)) break;
+    if (!_caps.hasNextRange(base)) {
+      _caps.markRemainingUnsupported(base);
+      break;
+    }
   }
   return Status::Ok;
 }

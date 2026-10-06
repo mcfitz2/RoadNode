@@ -34,6 +34,14 @@ public:
     return true;
   }
   uint32_t nowMs() override { return now; }
+  bool bus_off = false;
+  bool recovers = false;  // recover() clears bus_off
+  int recover_calls = 0;
+  bool busOff() override { return bus_off; }
+  void recover() override {
+    recover_calls++;
+    if (recovers) bus_off = false;
+  }
 
   void push(uint32_t id, std::initializer_list<uint8_t> bytes) {
     roadnode::obd::CanFrame f;

@@ -82,6 +82,16 @@ void test_capability_rejects_bad_input() {
   uint8_t m4[] = {0, 0, 0, 0};
   TEST_ASSERT_FALSE(t.load(0x05, m4, 4));
 }
+void test_capability_range_indexing_and_tail() {
+  CapabilityTable t;
+  uint8_t m[] = {0x00, 0x00, 0x00, 0x01};
+  t.load(0x00, m, 4);
+  TEST_ASSERT_TRUE(t.rangeKnown(0x20));   // PID 0x20 lives in the 00 range
+  TEST_ASSERT_FALSE(t.rangeKnown(0x21));  // 0x21 is in the unloaded 20 range
+  t.markRemainingUnsupported(0x00);
+  TEST_ASSERT_TRUE(t.rangeKnown(0x42));
+  TEST_ASSERT_FALSE(t.supported(0x42));
+}
 void test_capability_second_range() {
   CapabilityTable t;
   uint8_t m[] = {0x00, 0x00, 0x00, 0x01};
@@ -311,6 +321,7 @@ int main() {
   RUN_TEST(test_capability_bitmask);
   RUN_TEST(test_capability_unknown_range_not_assumed);
   RUN_TEST(test_capability_rejects_bad_input);
+  RUN_TEST(test_capability_range_indexing_and_tail);
   RUN_TEST(test_capability_second_range);
   RUN_TEST(test_gate_blocks_transmission);
   RUN_TEST(test_request_framing);

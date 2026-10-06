@@ -14,6 +14,7 @@ constexpr uint8_t PID_RPM = 0x0C;
 constexpr uint8_t PID_SPEED = 0x0D;
 constexpr uint8_t PID_INTAKE_TEMP = 0x0F;
 constexpr uint8_t PID_FUEL_LEVEL = 0x2F;
+constexpr uint8_t PID_MODULE_VOLTAGE = 0x42;
 
 // Decoders take the data bytes after "41 PID". Return false if too short.
 bool decodeSpeed(const uint8_t* d, uint8_t len, float& kmh);
@@ -22,6 +23,7 @@ bool decodeCoolantTemp(const uint8_t* d, uint8_t len, float& deg_c);
 bool decodeEngineLoad(const uint8_t* d, uint8_t len, float& percent);
 bool decodeIntakeTemp(const uint8_t* d, uint8_t len, float& deg_c);
 bool decodeFuelLevel(const uint8_t* d, uint8_t len, float& percent);
+bool decodeModuleVoltage(const uint8_t* d, uint8_t len, float& volts);
 
 // Generic decode by PID. Returns false for unknown PID or short data.
 bool decodePid(uint8_t pid, const uint8_t* d, uint8_t len, float& value);
@@ -40,6 +42,10 @@ public:
   // True if the range answered by `base` says the next range exists
   // (bit for PID base+0x20 is set), i.e. discovery should continue.
   bool hasNextRange(uint8_t base) const;
+
+  // Discovery stopped at `base` because no further range exists: every later
+  // range is known to be unsupported rather than unknown.
+  void markRemainingUnsupported(uint8_t base);
 
   void clear();
 
