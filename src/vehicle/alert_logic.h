@@ -16,16 +16,20 @@ struct AlertConditions {
 };
 
 struct AlertConfig {
-  uint32_t periodic_interval_ms = 15u * 60u * 1000u;  // between "still moving" reports
+  uint32_t periodic_interval_ms = 5u * 60u * 1000u;  // between "still moving" reports
   // alertIf cancels a queued alert as soon as its condition goes false, so the
-  // periodic condition must stay true long enough for the send and its retries.
-  uint32_t periodic_hold_ms = 5u * 60u * 1000u;
+  // periodic condition must stay true long enough for the send (one attempt per
+  // opted-in client, 8 s each). Clamped to half the interval so it always releases
+  // and re-arms before the next report is due.
+  uint32_t periodic_hold_ms = 2u * 60u * 1000u;
   float moving_kmh = 5.0f;  // speed that counts as moving
 };
 
 class AlertLogic {
 public:
-  explicit AlertLogic(const AlertConfig& cfg = AlertConfig()) : _cfg(cfg) {}
+  explicit AlertLogic(const AlertConfig& cfg = AlertConfig()) : _cfg(cfg) {
+    if (_cfg.periodic_hold_ms > _cfg.periodic_interval_ms / 2) _cfg.periodic_hold_ms = _cfg.periodic_interval_ms / 2;
+  }
 
   AlertConditions update(const VehicleSnapshot& s, uint32_t now_ms) {
     AlertConditions c;
