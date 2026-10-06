@@ -2,13 +2,22 @@
 
 // The only RoadNode module allowed to include MeshCore headers (plan sections 6, 26).
 #include <helpers/SensorManager.h>
+#include <helpers/sensors/EnvironmentSensorManager.h>
 
 namespace roadnode {
 
-// TODO: emit vehicle telemetry as Cayenne LPP from querySensors() (see #30, #31).
-class RoadNodeSensorManager : public SensorManager {
+// Stock EnvironmentSensorManager plus vehicle telemetry from VehicleRuntime.
+// MeshCore only reads the latest snapshot; the vehicle stack runs without it.
+class RoadNodeSensorManager : public EnvironmentSensorManager {
 public:
-  bool begin() override { return true; }
+#if ENV_INCLUDE_GPS
+  explicit RoadNodeSensorManager(LocationProvider& location) : EnvironmentSensorManager(location) {}
+#else
+  RoadNodeSensorManager() {}
+#endif
+
+  bool begin() override;
+  bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
 };
 
 }  // namespace roadnode

@@ -139,3 +139,10 @@ Test build of stock `heltec_v4_sensor` on macOS (PlatformIO CLI): **SUCCESS** in
 4. Update #4 and README: resolve GPIO3/4 conflict.
 5. Update #31: default to LPP; verify range for mileage.
 6. Update #41: reuse `EnvironmentSensorManager` GPS support and the real GNSS pin map.
+
+## 9. Integration as built (#30)
+
+- Vehicle stack (`src/vehicle/vehicle_runtime.*`) runs in its own core-0 task and has no MeshCore dependency. Mileage runs even if MeshCore is absent or fails.
+- `RoadNodeSensorManager` (`src/telemetry/`) extends `EnvironmentSensorManager`: `begin()` starts the runtime, `querySensors()` strips location and appends `encodeVehicle`.
+- The submodule is unmodified. `src/telemetry/variant/target.{h,cpp}` are copies of the vendor heltec_v4 files with only the type of `sensors` changed. `-I src/telemetry/variant` precedes the vendor variant include, and the vendor `target.cpp` is excluded. **Re-diff both files on every MeshCore bump.**
+- Pin finding: `ESP32Board::begin()` calls `Wire.begin()` on the default pins, which on heltec_v4 are SDA=3/SCL=4, the same as CAN TX/RX. The roadnode env defines `PIN_BOARD_SDA=17 PIN_BOARD_SCL=18` to move I2C away. Assumes GPIO17/18 are free on the no-OLED board; verify on hardware (scope CAN TX).
