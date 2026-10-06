@@ -12,7 +12,8 @@ Low-power OBD-II vehicle telemetry node. Reads standard OBD-II over CAN, integra
 git clone --recurse-submodules https://github.com/mcfitz2/RoadNode.git
 pio run -e heltec_v4_roadnode   # MeshCore sensor firmware
 pio run -e heltec_v4_cansniffer # listen-only CAN logger (no MeshCore)
-pio run -e heltec_v4_obdmonitor # OBD poll + mileage + NVS, serial output (no MeshCore); transmits OBD requests, see OBD_TRANSMIT_ENABLE in platformio.inipio test -d host                # host unit tests (mileage, trip)
+pio run -e heltec_v4_obdmonitor # OBD poll + mileage + NVS, serial output (no MeshCore); transmits OBD requests, see OBD_TRANSMIT_ENABLE in platformio.ini
+pio test -d host                # host unit tests
 ```
 
 ## Hardware
