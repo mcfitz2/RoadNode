@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <string.h>
 #include <string>
 
 #include "storage/kv_store.h"
