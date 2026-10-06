@@ -297,7 +297,7 @@ void test_dtcs_read_and_merged_in_snapshot() {
   d.stored_pairs = {0x03, 0x01};   // P0301
   d.pending_pairs = {0x04, 0x20};  // P0420
   d.attach(r);
-  r.ecu.speed = 50;
+  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
   r.ecu.rpm_raw = 3200;
   r.run(5);
   VehicleSnapshot s = r.telem.snapshot();
@@ -314,7 +314,7 @@ void test_dtcs_zero_codes_is_known_not_unknown() {
   Rig r;
   DtcEcu d;
   d.attach(r);
-  r.ecu.speed = 50;
+  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
   r.ecu.rpm_raw = 3200;
   r.run(5);
   VehicleSnapshot s = r.telem.snapshot();
@@ -334,7 +334,7 @@ void test_dtcs_polled_slowly() {
   Rig r;
   DtcEcu d;
   d.attach(r);
-  r.ecu.speed = 50;
+  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
   r.ecu.rpm_raw = 3200;
   r.run(65);  // ~65 s at 30 s interval: first read plus two more
   TEST_ASSERT_UINT32_WITHIN(1, 3, r.poller.stats().dtc_reads);
@@ -344,7 +344,7 @@ void test_silent_mode_0a_does_not_drop_obd_connection() {
   Rig r;
   DtcEcu d;  // 0A never answers
   d.attach(r);
-  r.ecu.speed = 50;
+  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
   r.ecu.rpm_raw = 3200;
   r.run(100);
   VehicleSnapshot s = r.telem.snapshot();
@@ -364,8 +364,64 @@ void test_poller_never_transmits_clear_or_other_write_modes() {
     TEST_ASSERT_TRUE(m == 0x01 || m == 0x03 || m == 0x07 || m == 0x0A || m == 0x09);
 }
 
+void test_dtc_reads_deferred_while_moving() {
+  Rig r;
+  DtcEcu d;
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(120);  // 2 min moving, 30 s interval, 10 min force limit
+  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
+  for (uint8_t m : d.modes_sent) TEST_ASSERT_TRUE(m == 0x01);  // no 03/07/0A while moving
+}
+
+void test_dtc_read_happens_once_stopped() {
+  Rig r;
+  DtcEcu d;
+  d.stored_pairs = {0x03, 0x01};
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(60);
+  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
+  r.ecu.speed = 0;
+  r.run(3);
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_EQUAL(1, (int)r.poller.stats().dtc_reads);
+  TEST_ASSERT_TRUE(s.has_dtcs);
+  TEST_ASSERT_EQUAL_HEX16(0x0301, s.dtc_raw[0]);
+}
+
+void test_dtc_read_forced_after_max_defer() {
+  Rig r;
+  DtcEcu d;
+  d.attach(r);
+  r.ecu.speed = 50;
+  r.ecu.rpm_raw = 3200;
+  r.run(500);  // 8+ min moving: still deferred
+  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
+  r.run(200);  // past the 10 min limit with no stop
+  TEST_ASSERT_TRUE(r.poller.stats().dtc_reads >= 1);
+}
+
+void test_speed_samples_keep_spacing_while_moving() {
+  Rig r;
+  DtcEcu d;
+  d.attach(r);
+  r.ecu.speed = 72;
+  r.ecu.rpm_raw = 3200;
+  r.run(100);
+  // 72 km/h = 20 m/s: ~99 s of integration, no DTC stall inside it
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_UINT64_WITHIN(150000, 1980000, s.total_mm);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_dtc_reads_deferred_while_moving);
+  RUN_TEST(test_dtc_read_happens_once_stopped);
+  RUN_TEST(test_dtc_read_forced_after_max_defer);
+  RUN_TEST(test_speed_samples_keep_spacing_while_moving);
   RUN_TEST(test_dtcs_read_and_merged_in_snapshot);
   RUN_TEST(test_dtcs_zero_codes_is_known_not_unknown);
   RUN_TEST(test_dtcs_not_read_without_ecu);

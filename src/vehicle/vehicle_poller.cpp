@@ -155,8 +155,17 @@ void VehiclePoller::step(uint32_t now_ms) {
   }
 
   // DTCs change rarely: poll at a slow rate, only while the ECU is answering.
-  if (_cfg.dtc_poll_interval_ms && (got_speed || _s.obd_connected) &&
-      (!_dtc_tried || now_ms - _dtc_last_ms >= _cfg.dtc_poll_interval_ms)) {
+  // Deferred while moving so the speed samples keep their 1 Hz spacing; an unreadable
+  // speed does not defer (distance is not integrating then anyway).
+  bool moving = got_speed && speed >= _cfg.dtc_max_speed_kmh;
+  if (!_dtc_clock_set) {  // deferral is measured from the first poll until the first read
+    _dtc_clock_set = true;
+    _dtc_last_ms = now_ms;
+  }
+  uint32_t since_dtc = now_ms - _dtc_last_ms;
+  bool dtc_due = !_dtc_tried || since_dtc >= _cfg.dtc_poll_interval_ms;  // first read as soon as allowed
+  bool dtc_forced = _cfg.dtc_max_defer_ms && since_dtc >= _cfg.dtc_max_defer_ms;
+  if (_cfg.dtc_poll_interval_ms && (got_speed || _s.obd_connected) && dtc_due && (!moving || dtc_forced)) {
     _dtc_tried = true;
     _dtc_last_ms = now_ms;
     pollDtcs();

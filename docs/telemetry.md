@@ -33,7 +33,9 @@ Fields with no fresh value are **omitted, never sent as zero**.
 ## DTCs (channels 8 and 9)
 
 Read-only: modes 03 (stored), 07 (pending) and 0A (permanent), polled every 30 s while the
-ECU answers. Each entry on channel 9 is `kind << 16 | raw`, where kind is 1 stored,
+ECU answers, but only when the vehicle is stopped (under 1 km/h): a DTC read can block the poll task
+for a few request timeouts and would stretch the gap between speed samples. If the vehicle does not stop
+for 10 minutes a read is forced. New codes can therefore be reported late on a long drive. Each entry on channel 9 is `kind << 16 | raw`, where kind is 1 stored,
 2 pending, 3 permanent and raw is the two wire bytes. Decode: top 2 bits of the high byte
 pick P/C/B/U, next 2 bits the first digit, then three hex digits (`0x0301` is `P0301`).
 Worst case (12 codes) is 29 + 3 + 72 = 104 bytes, plus MeshCore's channel 1, within the 180 limit.
