@@ -20,9 +20,10 @@ bool RoadNodeSensorManager::begin() {
 }
 
 bool RoadNodeSensorManager::querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) {
-  // Vehicle location is never reported over the mesh (see #51): strip the
-  // location permission before the stock GPS path can add it.
-  bool ok = EnvironmentSensorManager::querySensors(requester_permissions & ~TELEM_PERM_LOCATION, telemetry);
+  // Location (stock GPS channel 1) goes only to authenticated clients: telemetry
+  // requests are encrypted and answered only for ACL entries. Adverts carry the
+  // fixed ADVERT_LAT/LON prefs, never live GPS (#51).
+  bool ok = EnvironmentSensorManager::querySensors(requester_permissions, telemetry);
   if (requester_permissions & TELEM_PERM_BASE) {
     telemetry::encodeVehicle(vehicle::VehicleRuntime::telemetry().snapshot(), telemetry);
     ok = true;

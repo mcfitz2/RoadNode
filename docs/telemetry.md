@@ -47,9 +47,14 @@ LPP carries values through a `float`, exact only to 2^24.
 
 ## Privacy
 
-Location is never encoded. `RoadNodeSensorManager::querySensors` also strips
-`TELEM_PERM_LOCATION` before the stock GPS path runs (see #51). The vehicle id is
-not in the payload; peers identify the vehicle by node name / contact.
+Live GPS is reported on MeshCore's channel 1 (stock behaviour), **only in replies to
+telemetry requests**. Those are encrypted and answered only for clients in the node's
+ACL, so location is private to authorised clients. It is never in adverts: they carry
+the fixed `ADVERT_LAT/LON` prefs (0,0) while `adv_loc` stays at its default `prefs`.
+Do not set `adv_loc share`.
+
+Anyone with the admin/guest password can join the ACL and read location, so the default
+password must be changed before in-car use (#51). The vehicle id is not in the payload.
 
 ## Verification status
 
