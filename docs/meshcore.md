@@ -50,10 +50,17 @@ Rules:
 - RoadNode's own `platformio.ini` defines the `heltec_v4_roadnode` env. It reuses MeshCore's base env config and sources from the submodule.
 - Keep `can/`, `obd/`, `vehicle/`, `storage/` free of MeshCore includes. Only `telemetry/` (a `SensorManager` subclass plus a small `main.cpp` modeled on `examples/simple_sensor`) touches MeshCore. This preserves plan §6 and §26.
 
-**Unvalidated: build wiring (spike in #2).** MeshCore's `platformio.ini` uses paths relative to its own project root (`variants/*/platformio.ini`, `-I variants/heltec_v4`, `file://arch/esp32/AsyncElegantOTA`, `build_src_filter` entries like `+<../variants/heltec_v4>`, and the `merge-bin.py` extra script). Including it from a parent project may not resolve these. Candidate approaches to try, in order:
-1. `extra_configs = lib/MeshCore/platformio.ini` with `extends = Heltec_lora32_v4`, then fix up paths via `-I lib/MeshCore/...` and `build_src_filter` with `+<../lib/MeshCore/src/...>`.
-2. Treat MeshCore as a library (`lib_deps = symlink://lib/MeshCore`; it ships `library.json` and `build_as_lib.py`) and copy only the Heltec V4 `variants/heltec_v4` board/target glue into RoadNode as our own files (copying, not editing; track upstream changes).
-3. Fall back to a thin fork carrying only the new env and no code changes, if neither works.
+**Build wiring (validated in #2).** Approach 1 variant works with zero edits to MeshCore. Root `platformio.ini`:
+- `src_dir = vendor/MeshCore/src` and `boards_dir = vendor/MeshCore/boards`, so MeshCore's inherited `build_src_filter` entries (`+<../variants/heltec_v4>`, `+<../examples/simple_sensor>`) resolve unchanged.
+- `extra_configs` includes `vendor/MeshCore/platformio.ini` and `vendor/MeshCore/variants/heltec_v4/platformio.ini`; env `heltec_v4_roadnode` extends `heltec_v4_oled`.
+- `lib_extra_dirs = vendor/MeshCore/lib` (bundled `ed25519`), `extra_scripts = vendor/MeshCore/merge-bin.py`, and a `file://vendor/MeshCore/arch/esp32/AsyncElegantOTA` lib dep. These are the paths that are relative to MeshCore's own root and must be re-pointed.
+- The submodule lives in `vendor/`, **not** `lib/`. A root `lib/MeshCore` is auto-detected by PlatformIO as a library (it has `library.json`) and breaks the build.
+- RoadNode code lives in `./src` and is added with `+<../../../src>` plus `-I src`.
+- Result: stock sensor firmware builds, flash 1,171,621 bytes (stock: 1,171,637), and `git status` inside the submodule stays clean.
+
+Fragile points to re-check on each submodule bump: any new root-relative path in MeshCore's ini, and renamed env names (`heltec_v4_oled`).
+
+Fallbacks (not needed): treat MeshCore as a lib via `library.json`, or a thin fork with no code changes.
 
 Note `SensorMesh` and the stock `main.cpp` live in `examples/`, which is not part of the library. We will compile them directly from the submodule path via `build_src_filter` where possible; otherwise RoadNode carries its own sensor-node app (a copy with a different `SensorManager`).
 
