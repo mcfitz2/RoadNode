@@ -76,8 +76,11 @@ ACL, so location is private to authorised clients. It is never in adverts: they 
 the fixed `ADVERT_LAT/LON` prefs (0,0) while `adv_loc` stays at its default `prefs`.
 Do not set `adv_loc share`.
 
-Anyone with the admin/guest password can join the ACL and read location, so the default
-password must be changed before in-car use (#51). The vehicle id is not in the payload.
+Anyone with the admin/guest password can join the ACL and read location. The repo only
+holds the placeholder `password` (so it can be public); **no real secret is ever committed**.
+At deployment, set the real admin password on each unit over the admin CLI (`password <new>`,
+stored in the node's flash prefs, not in the build), before the unit goes in a vehicle (#51).
+The vehicle id is not in the payload.
 
 ## Alerts
 
