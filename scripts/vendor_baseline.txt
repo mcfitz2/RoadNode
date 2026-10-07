@@ -1,0 +1,8 @@
+# Vendor files that RoadNode shadows with its own modified copies (issue 58).
+# Columns: git blob hash of the vendor file when the RoadNode copy was last reconciled, vendor file, RoadNode copy.
+# Regenerate with `scripts/check_vendor_drift.sh --update` only AFTER re-diffing each changed vendor file
+# against its RoadNode copy and porting what matters (see docs/meshcore.md).
+# MeshCore commit at last reconcile: a366955c
+69182f3a7a9ad8189844f7e04d435792cd4587c8 examples/simple_sensor/main.cpp src/node/main.cpp
+5d668186b2b1ebbc18129261d52c8a9d7a1aeab3 variants/heltec_v4/target.h src/telemetry/variant/target.h
+8483f276891eea73956480cf3327b1c377e164d0 variants/heltec_v4/target.cpp src/telemetry/variant/target.cpp
