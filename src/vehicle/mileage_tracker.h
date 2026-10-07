@@ -46,6 +46,9 @@ public:
   // restored and false returned. Trip distance is untouched.
   bool setTotalMm(uint32_t now_ms, uint64_t total_mm);
 
+  bool setScaleBp(uint32_t bp) { return _mileage.setScaleBp(bp); }
+  uint32_t scaleBp() const { return _mileage.scaleBp(); }
+
   uint64_t gpsFilledMm() const { return _mileage.externalMm(); }
 
   // Checkpoint now, e.g. before intentional shutdown or deep sleep.

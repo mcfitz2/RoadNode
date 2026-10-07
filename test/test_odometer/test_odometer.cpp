@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unity.h>
 
+#include "fake_kv.h"
 #include "fake_store.h"
 #include "vehicle/mileage_tracker.h"
 #include "vehicle/odometer_commands.h"
@@ -23,6 +24,19 @@ public:
     return true;
   }
   bool setTotalMm(uint64_t mm) override { return !busy && _m.setTotalMm(1000, mm); }
+  FakeKv kv;
+  bool scaleBp(uint32_t& bp) override {
+    if (busy) return false;
+    bp = _m.scaleBp();
+    return true;
+  }
+  bool setScaleBp(uint32_t bp) override {
+    uint32_t old = _m.scaleBp();
+    if (busy || !_m.setScaleBp(bp)) return false;
+    if (saveOdoScale(kv, bp)) return true;
+    _m.setScaleBp(old);
+    return false;
+  }
 
 private:
   MileageTracker& _m;
@@ -142,6 +156,96 @@ void test_set_leaves_trip_untouched_and_driving_continues() {
   TEST_ASSERT_TRUE(m.totalMm() > base + 900000);  // about 1 km more
 }
 
+static void drive(MileageTracker& m, uint32_t& t, int secs, uint8_t kmh) {
+  for (int i = 0; i < secs; i++) {
+    t += 1000;
+    m.update(t, {true, true, kmh}, true);
+  }
+}
+
+void test_parse_percent() {
+  uint32_t bp = 0;
+  TEST_ASSERT_TRUE(parsePercentBp("100", bp));
+  TEST_ASSERT_EQUAL_UINT32(10000, bp);
+  TEST_ASSERT_TRUE(parsePercentBp("102.5", bp));
+  TEST_ASSERT_EQUAL_UINT32(10250, bp);
+  TEST_ASSERT_TRUE(parsePercentBp("97.05", bp));
+  TEST_ASSERT_EQUAL_UINT32(9705, bp);
+  TEST_ASSERT_TRUE(parsePercentBp("80", bp));
+  TEST_ASSERT_TRUE(parsePercentBp("120", bp));
+  TEST_ASSERT_EQUAL_UINT32(12000, bp);
+  for (const char* bad : {"", "79.99", "120.01", "-5", "abc", "1e2", "100.", ".5", "100.123", "1000", "100%", " 100"})
+    TEST_ASSERT_FALSE_MESSAGE(parsePercentBp(bad, bp), bad);
+}
+
+void test_scale_command_show_set_and_reject() {
+  FakeStore s;
+  MileageTracker m(s);
+  TrackerOdo odo(m);
+  char r[160];
+  TEST_ASSERT_EQUAL_STRING("odo scale 100.00%", run(odo, "odo scale", r));
+  TEST_ASSERT_EQUAL_STRING("OK odo scale 102.50% (was 100.00%)", run(odo, "odo scale 102.5", r));
+  TEST_ASSERT_EQUAL_UINT32(10250, m.scaleBp());
+  TEST_ASSERT_EQUAL_STRING("odo scale 102.50%", run(odo, "odo scale", r));
+  TEST_ASSERT_TRUE(strncmp(run(odo, "odo scale 130", r), "Err", 3) == 0);
+  TEST_ASSERT_TRUE(strncmp(run(odo, "odo scale x", r), "Err", 3) == 0);
+  TEST_ASSERT_EQUAL_UINT32(10250, m.scaleBp());
+  odo.busy = true;
+  TEST_ASSERT_TRUE(strncmp(run(odo, "odo scale 101", r), "Err: busy", 9) == 0);
+  TEST_ASSERT_EQUAL_UINT32(10250, m.scaleBp());
+}
+
+void test_scale_save_failure_keeps_old_factor() {
+  FakeStore s;
+  MileageTracker m(s);
+  TrackerOdo odo(m);
+  char r[160];
+  odo.kv.fail_writes = true;
+  TEST_ASSERT_TRUE(strncmp(run(odo, "odo scale 105", r), "Err: not saved", 14) == 0);
+  TEST_ASSERT_EQUAL_UINT32(10000, m.scaleBp());
+}
+
+void test_scale_persists_and_loads() {
+  FakeKv kv;
+  uint32_t bp = 0;
+  TEST_ASSERT_FALSE(loadOdoScale(kv, bp));
+  TEST_ASSERT_TRUE(saveOdoScale(kv, 10250));
+  TEST_ASSERT_TRUE(loadOdoScale(kv, bp));
+  TEST_ASSERT_EQUAL_UINT32(10250, bp);
+  kv.data["odo_scale"] = "99999";  // corrupt: out of range is ignored
+  bp = 10000;
+  TEST_ASSERT_FALSE(loadOdoScale(kv, bp));
+  TEST_ASSERT_EQUAL_UINT32(10000, bp);
+  kv.data["odo_scale"] = "12x";
+  TEST_ASSERT_FALSE(loadOdoScale(kv, bp));
+}
+
+void test_scale_multiplies_obd_and_gps_distance() {
+  FakeStore s1, s2;
+  MileageTracker a(s1), b(s2);
+  TEST_ASSERT_TRUE(b.setScaleBp(10250));
+  uint32_t ta = 0, tb = 0;
+  drive(a, ta, 600, 60);
+  drive(b, tb, 600, 60);
+  double ratio = (double)b.totalMm() / (double)a.totalMm();
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.025f, (float)ratio);
+  TEST_ASSERT_EQUAL_UINT64(b.totalMm(), b.tripMm());  // trip follows the same factor
+  FakeStore s3;
+  MileageTracker g(s3);
+  g.setScaleBp(10250);
+  TEST_ASSERT_TRUE(g.addGpsDistance(1000, 100000, 0));
+  TEST_ASSERT_EQUAL_UINT64(102500, g.totalMm());
+  TEST_ASSERT_EQUAL_UINT64(102500, g.gpsFilledMm());
+}
+
+void test_scale_out_of_range_rejected_by_mileage() {
+  FakeStore s;
+  MileageTracker m(s);
+  TEST_ASSERT_FALSE(m.setScaleBp(7999));
+  TEST_ASSERT_FALSE(m.setScaleBp(12001));
+  TEST_ASSERT_EQUAL_UINT32(10000, m.scaleBp());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_miles_conversion);
@@ -151,5 +255,11 @@ int main() {
   RUN_TEST(test_save_failure_reverts_and_reports);
   RUN_TEST(test_busy_reports_and_changes_nothing);
   RUN_TEST(test_set_leaves_trip_untouched_and_driving_continues);
+  RUN_TEST(test_parse_percent);
+  RUN_TEST(test_scale_command_show_set_and_reject);
+  RUN_TEST(test_scale_save_failure_keeps_old_factor);
+  RUN_TEST(test_scale_persists_and_loads);
+  RUN_TEST(test_scale_multiplies_obd_and_gps_distance);
+  RUN_TEST(test_scale_out_of_range_rejected_by_mileage);
   return UNITY_END();
 }

@@ -39,6 +39,14 @@ public:
   // Odometer resync (admin command). Replaces the total, drops the sub-mm remainder; trip untouched.
   void setTotal(uint64_t total_mm);
 
+  // Calibration so the device odometer tracks the dash: every distance added (OBD and GPS) is multiplied
+  // by bp / 10000 (10000 = 100%). Bounds are enforced by the caller (SCALE_MIN_BP..SCALE_MAX_BP).
+  static constexpr uint32_t SCALE_UNITY_BP = 10000;
+  static constexpr uint32_t SCALE_MIN_BP = 8000;
+  static constexpr uint32_t SCALE_MAX_BP = 12000;
+  bool setScaleBp(uint32_t bp);
+  uint32_t scaleBp() const { return _scale_bp; }
+
   uint64_t externalMm() const { return _external_mm; }  // added by addExternal() since boot
   uint64_t totalMm() const { return _total_mm; }
   uint64_t tripMm() const { return _trip_mm; }
@@ -51,7 +59,8 @@ private:
   uint64_t _total_mm = 0;
   uint64_t _trip_mm = 0;
   uint64_t _external_mm = 0;
-  uint32_t _remainder = 0;  // in units of 1/36 mm
+  uint32_t _remainder = 0;  // in units of 1/(36 * 10000) mm
+  uint32_t _scale_bp = SCALE_UNITY_BP;
   uint32_t _gaps_skipped = 0;
   bool _trip_active = false;
   bool _have_prev = false;

@@ -68,6 +68,8 @@ bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
   Serial.printf("# vehicle id: %s%s\n", s_identity.id(), s_identity.hasVin() ? " (VIN stored locally)" : "");
   s_poller.setIdentity(&s_identity);
   s_tracker.setVehicleId(s_identity.id());
+  uint32_t scale_bp;
+  if (loadOdoScale(s_kv, scale_bp) && s_tracker.setScaleBp(scale_bp)) Serial.printf("# odometer scale: %lu bp\n", (unsigned long)scale_bp);
   bool restored = s_tracker.begin(millis());
   Serial.printf("# odometer %s: %llu mm\n", restored ? "restored" : "fresh", (unsigned long long)s_tracker.totalMm());
 
@@ -118,6 +120,22 @@ public:
     xSemaphoreGive(s_lock);
     Serial.printf("# odometer resync %s: %llu mm -> %llu mm\n", ok ? "saved" : "FAILED", (unsigned long long)old,
                   (unsigned long long)total_mm);
+    return ok;
+  }
+  bool scaleBp(uint32_t& bp) override {
+    if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+    bp = s_tracker.scaleBp();
+    xSemaphoreGive(s_lock);
+    return true;
+  }
+  // Applied and saved together: if the write fails the old factor stays in force.
+  bool setScaleBp(uint32_t bp) override {
+    if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+    uint32_t old = s_tracker.scaleBp();
+    bool ok = s_tracker.setScaleBp(bp) && saveOdoScale(s_kv, bp);
+    if (!ok) s_tracker.setScaleBp(old);
+    xSemaphoreGive(s_lock);
+    Serial.printf("# odometer scale %s: %lu bp -> %lu bp\n", ok ? "saved" : "FAILED", (unsigned long)old, (unsigned long)bp);
     return ok;
   }
 };

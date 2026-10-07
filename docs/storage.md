@@ -86,7 +86,19 @@ wherever you set it and drifts from the dash.
   with the old value and the correction, e.g. `OK odo 187432.5 mi (was 187401.1, +31.4)`. If the write fails the old
   value is kept and the reply says so. Trip distance is not changed. The serial console also logs old and new
   millimetres. Anyone holding the admin password can change the odometer, so set a real password per unit (#51).
+- **Calibration.** `odo scale` shows the distance factor, `odo scale <percent>` sets it (80 to 120, up to two decimals,
+  e.g. `odo scale 102.5`; reply `OK odo scale 102.50% (was 100.00%)`). It multiplies every distance added from then
+  on, OBD and GPS fill alike, so the device value tracks the dash when speed or tyre size make them differ. Stored in
+  NVS (`roadnode_cfg`, key `odo_scale`, basis points, 10000 = 100%); a failed write keeps the old factor. It does not
+  change the value already stored (use `odo set`). Trip distance and the #43 OBD/GPS comparison use the scaled value,
+  so the ratio on channel 17 is against the calibrated OBD distance. To pick a factor: drive a known stretch, compare
+  the dash delta to the `odo` delta, and set the old factor times dash over device.
 - Units: commands and replies are miles; storage is millimetres; telemetry channel 2 stays 0.1 km and follows `odo set`.
+
+Whole-stack host test (`test/test_stack`): simulated ECU -> ObdManager -> VehiclePoller -> MileageTracker -> A/B
+store. Over 20 drive cycles (26.7 km) the odometer is within 0.5% of the simulator's exact distance (0.005% seen);
+an unplugged bus adds no distance and loses none; a clean shutdown and reboot keep the value exactly; a power cut
+loses at most one checkpoint interval (0.5 mile or 2 min); the scale factor carries through end to end.
 
 Verified: host tests (fill rules, mixed OBD/GPS drive within 60 m of truth over 5 km, command parsing and limits,
 persistence across reboot, write failure revert). Not verified on hardware: NVS write on the device, GPS filling on
