@@ -2,10 +2,13 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 jobs:
   firmware:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # release upload on tags
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,3 +37,11 @@ jobs:
           name: roadnode-heltec_v4-${{ github.sha }}
           path: .pio/build/heltec_v4_roadnode/firmware-merged.bin
           if-no-files-found: error
+      - name: Attach image to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp .pio/build/heltec_v4_roadnode/firmware-merged.bin "roadnode-heltec_v4-${GITHUB_REF_NAME}.bin"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "roadnode-heltec_v4-${GITHUB_REF_NAME}.bin" --clobber

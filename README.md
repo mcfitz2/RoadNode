@@ -68,6 +68,12 @@ R8 boards differ (VEXT=40, GNSS enable=42, LED=46, octal PSRAM on GPIO33-37). No
 11. Start with listen-only CAN monitoring before transmitting anything to a vehicle.
 12. Test the 2006 RAV4 first; it is the reference implementation.
 
+## Releases
+
+CI uploads a flashable `firmware-merged.bin` for every push (workflow artifact `roadnode-heltec_v4-<sha>`). Pushing a
+tag that starts with `v` (for example `git tag v0.1.0 && git push origin v0.1.0`) also creates a GitHub release and
+attaches `roadnode-heltec_v4-<tag>.bin`. Flash at offset 0: `esptool.py write_flash 0x0 roadnode-heltec_v4-<tag>.bin`.
+
 ## License
 
 MIT, see `LICENSE`. MeshCore (`vendor/MeshCore`) and files derived from it are covered by its own MIT notice: see `THIRD_PARTY_NOTICES.md`.
