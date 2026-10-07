@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <stdint.h>
 
 #include "storage/kv_store.h"
@@ -19,7 +20,8 @@ public:
   // written back, so changing the build flag later still applies until set at runtime.
   void begin(const char* default_id);
 
-  // Current short ID. Safe to call from another task than setId().
+  // Current short ID. Safe to call from another task than setId() (seqlock with acquire/release
+  // ordering). Writers must not run concurrently with each other: setId() is only called from the admin command path.
   void copyId(char out[16]) const;
   const char* id() const { return _id; }  // single-task use only
 
@@ -49,7 +51,7 @@ public:
 private:
   storage::KvStore& _kv;
   char _id[16] = {0};
-  uint32_t _ver = 0;  // odd while _id is being written (seqlock)
+  std::atomic<uint32_t> _ver{0};  // odd while _id is being written (seqlock); one writer at a time
   char _vin[18] = {0};
   bool _vin_check_ok = false;
   bool _vin_mismatch = false;

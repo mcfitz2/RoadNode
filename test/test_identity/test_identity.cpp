@@ -1,4 +1,6 @@
+#include <atomic>
 #include <string.h>
+#include <thread>
 #include <unity.h>
 
 
@@ -81,6 +83,35 @@ void test_copy_id() {
   char out[16];
   id.copyId(out);
   TEST_ASSERT_EQUAL_STRING("RAV4", out);
+}
+
+// A reader on another thread must never see a half-written ID while setId() flips between two values.
+void test_copy_id_is_never_torn_across_threads() {
+  FakeKv kv;
+  VehicleIdentity id(kv);
+  id.begin("AAAAAAAAAAAAAAA");
+  std::atomic<bool> stop{false};
+  std::thread writer([&] {
+    bool a = false;
+    while (!stop) {
+      id.setId(a ? "AAAAAAAAAAAAAAA" : "BBBBBBBBBBBBBBB");
+      a = !a;
+    }
+  });
+  int torn = 0;
+  for (int i = 0; i < 200000; i++) {
+    char out[16];
+    id.copyId(out);
+    bool all_a = true, all_b = true;
+    for (int j = 0; j < 15; j++) {
+      if (out[j] != 'A') all_a = false;
+      if (out[j] != 'B') all_b = false;
+    }
+    if (!(all_a || all_b) || out[15] != 0) torn++;
+  }
+  stop = true;
+  writer.join();
+  TEST_ASSERT_EQUAL(0, torn);
 }
 
 void test_first_vin_stored_and_persisted() {
@@ -190,6 +221,7 @@ int main() {
   RUN_TEST(test_set_id_write_failure_keeps_old_id);
   RUN_TEST(test_corrupt_persisted_id_ignored);
   RUN_TEST(test_copy_id);
+  RUN_TEST(test_copy_id_is_never_torn_across_threads);
   RUN_TEST(test_first_vin_stored_and_persisted);
   RUN_TEST(test_bad_check_digit_stored_but_flagged);
   RUN_TEST(test_malformed_vin_rejected);

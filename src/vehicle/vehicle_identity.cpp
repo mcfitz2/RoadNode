@@ -48,10 +48,11 @@ void VehicleIdentity::begin(const char* default_id) {
 
 void VehicleIdentity::copyId(char out[16]) const {
   for (;;) {
-    uint32_t v1 = _ver;
+    uint32_t v1 = _ver.load(std::memory_order_acquire);
     if (v1 & 1) continue;
     memcpy(out, _id, 16);
-    if (v1 == _ver) return;
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (v1 == _ver.load(std::memory_order_relaxed)) return;
   }
 }
 
@@ -60,10 +61,12 @@ bool VehicleIdentity::setId(const char* id) {
   char u[16];
   upper(u, id);
   if (!_kv.putString(KEY_ID, u)) return false;
-  _ver++;  // odd: writing
+  uint32_t v = _ver.load(std::memory_order_relaxed);
+  _ver.store(v + 1, std::memory_order_relaxed);  // odd: writing
+  std::atomic_thread_fence(std::memory_order_release);
   memset(_id, 0, sizeof(_id));
   memcpy(_id, u, strlen(u));
-  _ver++;
+  _ver.store(v + 2, std::memory_order_release);
   return true;
 }
 
