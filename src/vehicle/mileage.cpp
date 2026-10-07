@@ -30,6 +30,16 @@ void Mileage::add(uint64_t mm) {
   if (_trip_active) _trip_mm += mm;
 }
 
+void Mileage::addExternal(uint64_t mm) {
+  add(mm);
+  _external_mm += mm;
+}
+
+void Mileage::setTotal(uint64_t total_mm) {
+  _total_mm = total_mm;
+  _remainder = 0;
+}
+
 void Mileage::update(uint32_t now_ms, uint8_t speed_kmh) {
   if (_have_prev) {
     uint32_t dt = now_ms - _prev_ms;  // wrap-safe

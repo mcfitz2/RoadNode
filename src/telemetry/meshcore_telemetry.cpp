@@ -49,6 +49,20 @@ void RoadNodeSensorManager::loop() {
   bool valid = gps_active && _location->isValid();  // GNSS off still counts as a no-fix sample for coverage
   if (valid) _clock_from_gps = true;
   _gps_track.update(now, valid, valid ? (int32_t)_location->getLatitude() : 0, valid ? (int32_t)_location->getLongitude() : 0);
+
+  // Offer new GPS distance to the odometer, which uses it only while OBD speed is unavailable. Offered
+  // every tick (even 0) so the interval start stays recent; the baseline moves only when taken.
+  if (!_gps_offer_started) {
+    _gps_offer_started = true;
+    _gps_offer_ms = now;
+    _gps_offered_mm = _gps_track.state(now).total_mm;
+    return;
+  }
+  uint64_t total = _gps_track.state(now).total_mm;
+  if (vehicle::VehicleRuntime::addGpsDistance(total - _gps_offered_mm, _gps_offer_ms)) {
+    _gps_offered_mm = total;
+    _gps_offer_ms = now;
+  }
 }
 #endif
 

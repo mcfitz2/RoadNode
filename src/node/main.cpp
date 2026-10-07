@@ -8,6 +8,7 @@
 #include "storage/nvs_kv_store.h"
 #include "vehicle/alert_settings.h"
 #include "vehicle/identity_commands.h"
+#include "vehicle/odometer_commands.h"
 #include "vehicle/vehicle_runtime.h"
 
 #ifdef DISPLAY_CLASS
@@ -100,6 +101,8 @@ protected:
       return true;   // handled
     }
     if (roadnode::vehicle::handleAlertCommand(settings_kv, vehicle_alerts, command, reply))
+      return true;
+    if (roadnode::vehicle::handleOdometerCommand(roadnode::vehicle::VehicleRuntime::odometer(), command, reply))
       return true;
     if (roadnode::vehicle::handleIdentityCommand(roadnode::vehicle::VehicleRuntime::identity(), command, reply))
       return true;

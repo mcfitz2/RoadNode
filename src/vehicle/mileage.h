@@ -33,6 +33,13 @@ public:
   void endTrip();
   bool tripActive() const { return _trip_active; }
 
+  // Distance measured by another source (GPS) while OBD speed was unavailable. Goes into the
+  // total, and the trip while one is active; leaves the OBD sample history alone.
+  void addExternal(uint64_t mm);
+  // Odometer resync (admin command). Replaces the total, drops the sub-mm remainder; trip untouched.
+  void setTotal(uint64_t total_mm);
+
+  uint64_t externalMm() const { return _external_mm; }  // added by addExternal() since boot
   uint64_t totalMm() const { return _total_mm; }
   uint64_t tripMm() const { return _trip_mm; }
   uint32_t gapsSkipped() const { return _gaps_skipped; }
@@ -43,6 +50,7 @@ private:
   uint32_t _max_gap_ms;
   uint64_t _total_mm = 0;
   uint64_t _trip_mm = 0;
+  uint64_t _external_mm = 0;
   uint32_t _remainder = 0;  // in units of 1/36 mm
   uint32_t _gaps_skipped = 0;
   bool _trip_active = false;

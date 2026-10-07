@@ -37,6 +37,17 @@ public:
   // Returns the trip event for this sample, so callers can send telemetry.
   TripEvent update(uint32_t now_ms, const TripInput& in, bool speed_valid);
 
+  // GPS-measured distance for the interval starting at interval_start_ms, counted only when OBD
+  // speed was unavailable for all of it (no OBD sample at or after the interval start), so OBD and
+  // GPS never both count the same metres. Returns whether it was added.
+  bool addGpsDistance(uint32_t now_ms, uint64_t mm, uint32_t interval_start_ms);
+
+  // Odometer resync: sets the total and checkpoints at once. If the write fails the old value is
+  // restored and false returned. Trip distance is untouched.
+  bool setTotalMm(uint32_t now_ms, uint64_t total_mm);
+
+  uint64_t gpsFilledMm() const { return _mileage.externalMm(); }
+
   // Checkpoint now, e.g. before intentional shutdown or deep sleep.
   // Returns false if the write failed (it is retried on later update() calls).
   bool shutdown(uint32_t now_ms);
@@ -60,6 +71,8 @@ private:
   char _vehicle_id[16] = {0};
   uint32_t _unix_time = 0;
   uint32_t _last_trip_ts = 0;
+  bool _obd_ever_valid = false;
+  uint32_t _last_obd_valid_ms = 0;
   bool _save_pending = false;
   uint32_t _save_failures = 0;
 };

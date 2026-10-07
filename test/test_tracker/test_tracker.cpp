@@ -232,6 +232,69 @@ void test_trip_event_returned() {
   TEST_ASSERT_EQUAL(TripEvent::Ended, m.update(1100, parked(), true));
 }
 
+// GPS gap fill (odometer): counted only while OBD speed is unavailable.
+void test_gps_fills_only_when_obd_unavailable() {
+  FakeStore s;
+  MileageTracker m(s);
+  m.begin(0);
+  uint32_t t = 0;
+  drive(m, t, 60, 10);  // OBD valid until t=10000
+  uint64_t after_obd = m.totalMm();
+  // Interval 9000..10000 overlaps valid OBD: ignored.
+  TEST_ASSERT_FALSE(m.addGpsDistance(t, 16000, t - 1000));
+  TEST_ASSERT_EQUAL_UINT64(after_obd, m.totalMm());
+  // OBD drops: samples invalid from here.
+  drive(m, t, 60, 5, false);
+  TEST_ASSERT_TRUE(m.addGpsDistance(t, 16000, t - 1000));  // interval starts after the last valid sample
+  TEST_ASSERT_EQUAL_UINT64(after_obd + 16000, m.totalMm());
+  TEST_ASSERT_EQUAL_UINT64(16000, m.gpsFilledMm());
+}
+
+void test_gps_fills_when_obd_never_valid_and_trip_follows_trip_state() {
+  FakeStore s;
+  MileageTracker m(s);
+  m.begin(0);
+  TEST_ASSERT_TRUE(m.addGpsDistance(1000, 5000, 0));
+  TEST_ASSERT_EQUAL_UINT64(5000, m.totalMm());
+  TEST_ASSERT_EQUAL_UINT64(0, m.tripMm());  // no trip active
+  uint32_t t = 1000;
+  m.update(t += 1000, driving(0), false);  // trip starts (engine running) with no usable speed
+  TEST_ASSERT_TRUE(m.tripActive());
+  TEST_ASSERT_TRUE(m.addGpsDistance(t + 1000, 7000, t));
+  TEST_ASSERT_EQUAL_UINT64(7000, m.tripMm());
+  TEST_ASSERT_EQUAL_UINT64(12000, m.totalMm());
+}
+
+void test_gps_fill_checkpoints_and_survives_reboot() {
+  FakeStore s;
+  {
+    MileageTracker m(s);
+    m.begin(0);
+    TEST_ASSERT_TRUE(m.addGpsDistance(200000, HALF_MILE_MM, 0));  // over the checkpoint distance
+  }
+  TEST_ASSERT_EQUAL_UINT64(HALF_MILE_MM, persistedTotal(s));
+}
+
+// 5 minutes at 60 km/h with OBD out for the middle minute: the total should land close to
+// the true 5 km, not 4 km, and OBD time must not be double counted.
+void test_mixed_obd_gps_drive_total_close_to_truth() {
+  FakeStore s;
+  MileageTracker m(s);
+  m.begin(0);
+  uint32_t t = 0, gps_start = 0;
+  for (int sec = 0; sec < 300; sec++) {
+    t += 1000;
+    bool obd = !(sec >= 120 && sec < 180);
+    m.update(t, driving(60), obd);
+    // GPS offers 16.67 m every second (rounded), like a perfect receiver
+    m.addGpsDistance(t, 16667, gps_start);
+    gps_start = t;
+  }
+  uint64_t truth = 5000000;
+  TEST_ASSERT_UINT64_WITHIN(60000, truth, m.totalMm());  // within 60 m of 5 km
+  TEST_ASSERT_TRUE(m.gpsFilledMm() > 900000 && m.gpsFilledMm() < 1100000);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_fresh_device);
@@ -247,5 +310,9 @@ int main() {
   RUN_TEST(test_shutdown_failure_reported_and_retried);
   RUN_TEST(test_vehicle_id_and_timestamp_persist);
   RUN_TEST(test_trip_event_returned);
+  RUN_TEST(test_gps_fills_only_when_obd_unavailable);
+  RUN_TEST(test_gps_fills_when_obd_never_valid_and_trip_follows_trip_state);
+  RUN_TEST(test_gps_fill_checkpoints_and_survives_reboot);
+  RUN_TEST(test_mixed_obd_gps_drive_total_close_to_truth);
   return UNITY_END();
 }

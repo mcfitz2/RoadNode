@@ -131,6 +131,19 @@ void test_trip_coverage_counts_fix_time_and_resets() {
   TEST_ASSERT_EQUAL(0, s.trip_total_ms);
 }
 
+void test_lifetime_total_survives_trip_reset() {
+  GpsTrack g;
+  uint32_t t = 1000;
+  for (int i = 0; i <= 10; i++, t += 1000) g.update(t, true, 45000000 + north_e6(20.0 * i), -93000000);
+  GpsTrackState a = g.state(t - 1000);
+  TEST_ASSERT_TRUE(a.total_mm > 190000);
+  TEST_ASSERT_EQUAL_UINT64(a.trip_mm, a.total_mm);
+  g.resetTrip();
+  GpsTrackState b = g.state(t - 1000);
+  TEST_ASSERT_EQUAL_UINT64(0, b.trip_mm);
+  TEST_ASSERT_EQUAL_UINT64(a.total_mm, b.total_mm);
+}
+
 void test_reset_trip() {
   GpsTrack g;
   uint32_t t = 0;
@@ -160,6 +173,7 @@ int main() {
   RUN_TEST(test_fix_loss_reads_unknown);
   RUN_TEST(test_position_jump_not_counted);
   RUN_TEST(test_trip_coverage_counts_fix_time_and_resets);
+  RUN_TEST(test_lifetime_total_survives_trip_reset);
   RUN_TEST(test_reset_trip);
   RUN_TEST(test_no_drift_over_many_small_steps);
   return UNITY_END();

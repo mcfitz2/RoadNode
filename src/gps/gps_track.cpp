@@ -69,6 +69,7 @@ void GpsTrack::update(uint32_t now_ms, bool valid, int32_t lat, int32_t lon) {
   _frac_mm += (double)d * 1000.0;
   uint64_t whole = (uint64_t)_frac_mm;
   _trip_mm += whole;
+  _total_mm += whole;
   _frac_mm -= (double)whole;
   _lat = lat;
   _lon = lon;
@@ -78,6 +79,7 @@ void GpsTrack::update(uint32_t now_ms, bool valid, int32_t lat, int32_t lon) {
 GpsTrackState GpsTrack::state(uint32_t now_ms) const {
   GpsTrackState s;
   s.trip_mm = _trip_mm;
+  s.total_mm = _total_mm;
   s.trip_fix_ms = _trip_fix_ms;
   s.trip_total_ms = _trip_total_ms;
   s.has_fix = _ever_fix && (uint32_t)(now_ms - _last_fix_ms) <= _cfg.max_gap_ms;

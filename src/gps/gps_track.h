@@ -26,6 +26,7 @@ struct GpsTrackState {
   bool has_heading = false;  // set after the first accepted step; kept while stopped
   uint16_t heading_deg = 0;  // 0-359, true north
   uint64_t trip_mm = 0;      // since resetTrip() / boot
+  uint64_t total_mm = 0;     // since boot; resetTrip() does not clear it (feeds the odometer gap fill)
   uint32_t trip_fix_ms = 0;    // time with a current fix since resetTrip(), for trip comparison (#43)
   uint32_t trip_total_ms = 0;  // time sampled since resetTrip()
 };
@@ -63,6 +64,7 @@ private:
   bool _has_heading = false;
   uint16_t _heading = 0;
   uint64_t _trip_mm = 0;
+  uint64_t _total_mm = 0;
   uint32_t _trip_fix_ms = 0;
   uint32_t _trip_total_ms = 0;
   bool _have_call = false;

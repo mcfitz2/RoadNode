@@ -43,7 +43,7 @@ Stored in NVS namespace `roadnode_cfg` (`NvsKvStore`), separate from the mileage
 
 - `vid`: short vehicle ID (1-15 of `A-Z 0-9 - _`, stored uppercase). The persisted value wins over the
   `VEHICLE_ID` build flag, which is only the first-boot default. This is the only identifier in telemetry
-  and alerts. Admin commands: `vid`, `vid set <ID>`.
+  and alerts. Admin commands: `vid`, `vid set <ID>`. Odometer: `odo`, `odo set <miles>` (see the last section).
 - `vin`: read once per boot from Mode 09 PID 02 while stopped (retried up to 5 times, 30 s apart; a
   negative response stops retries). The first well-formed VIN is stored; a failing check digit is
   recorded but not rejected (check digit is only mandatory in North America). A later different VIN
@@ -67,3 +67,27 @@ Unverified on hardware: NVS persistence across power cycles, real ECU VIN reads.
 
 Verified: the tracker's use of the timestamp (host tests). Not verified: the board overrides running on the ESP32,
 and the GPS-set RTC (no fix on the bench).
+
+## Keeping the device odometer right: GPS gap fill and resync
+
+The device odometer is the primary product: maintenance is tracked elsewhere and reads this value, so the node
+only has to report it accurately. The car's own odometer cannot be read over OBD, so the device value starts
+wherever you set it and drifts from the dash.
+
+- **GPS gap fill.** OBD speed is the source of distance. While it is unavailable (CAN dropout, OBD link down),
+  distance from GPS (`GpsTrack`, lifetime total) is added instead. Each second the sensor manager offers the new GPS
+  distance and the interval it covers (`VehicleRuntime::addGpsDistance`); `MileageTracker::addGpsDistance` takes it
+  only if no OBD speed sample landed in that interval, so the two sources never count the same metres. If the poll
+  task holds the lock the offer is retried with the same distance (nothing is lost). The fill also lands in the
+  trip distance while a trip is active. GPS chords cut curves and no-fix gaps are not integrated, so filled
+  distance is a lower bound; it is still better than losing the stretch. `odo` shows how much GPS has added since boot.
+- **Resync.** Admin commands (serial, or remote admin over the mesh with the admin password): `odo` shows the value in
+  miles; `odo set <miles>` replaces it (0 to 1,000,000, one decimal), writes the A/B slot immediately and replies
+  with the old value and the correction, e.g. `OK odo 187432.5 mi (was 187401.1, +31.4)`. If the write fails the old
+  value is kept and the reply says so. Trip distance is not changed. The serial console also logs old and new
+  millimetres. Anyone holding the admin password can change the odometer, so set a real password per unit (#51).
+- Units: commands and replies are miles; storage is millimetres; telemetry channel 2 stays 0.1 km and follows `odo set`.
+
+Verified: host tests (fill rules, mixed OBD/GPS drive within 60 m of truth over 5 km, command parsing and limits,
+persistence across reboot, write failure revert). Not verified on hardware: NVS write on the device, GPS filling on
+a real drive, the command over a real mesh, lock timing while a DTC read blocks the poll task.

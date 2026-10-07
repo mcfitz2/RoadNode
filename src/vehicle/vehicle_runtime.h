@@ -2,6 +2,7 @@
 
 #ifdef ARDUINO
 
+#include "odometer_commands.h"
 #include "vehicle_identity.h"
 #include "vehicle_state.h"
 
@@ -28,6 +29,14 @@ public:
   // Unix time for the odometer record's last-trip timestamp. Call only with a trustworthy clock
   // (a stock MeshCore RTC with no sync holds an arbitrary value). No-op before begin().
   static void setTime(uint32_t unix_seconds);
+
+  // GPS-measured distance for the interval starting at interval_start_ms (millis()). Taken only when
+  // OBD speed was unavailable for all of it. Returns false if it could not be offered (not started, or
+  // the poll task held the lock): the caller keeps the distance and offers it again.
+  static bool addGpsDistance(uint64_t mm, uint32_t interval_start_ms);
+
+  // Odometer read/resync for the admin command. Takes the poll task's lock.
+  static OdometerControl& odometer();
 
   // Reported by begin(): false if the CAN driver failed to start.
   static bool canStarted();

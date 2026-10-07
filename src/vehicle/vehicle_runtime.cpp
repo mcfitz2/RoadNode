@@ -93,6 +93,39 @@ void VehicleRuntime::setTime(uint32_t unix_seconds) {
   if (s_started) s_tracker.setTime(unix_seconds);
 }
 
+bool VehicleRuntime::addGpsDistance(uint64_t mm, uint32_t interval_start_ms) {
+  if (!s_started || !s_lock) return false;
+  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  s_tracker.addGpsDistance(millis(), mm, interval_start_ms);  // ignored (consumed) if OBD was valid in the interval
+  xSemaphoreGive(s_lock);
+  return true;
+}
+
+namespace {
+class RuntimeOdometer : public OdometerControl {
+public:
+  bool read(uint64_t& total_mm, uint64_t& gps_mm) override {
+    if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+    total_mm = s_tracker.totalMm();
+    gps_mm = s_tracker.gpsFilledMm();
+    xSemaphoreGive(s_lock);
+    return true;
+  }
+  bool setTotalMm(uint64_t total_mm) override {
+    if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+    uint64_t old = s_tracker.totalMm();
+    bool ok = s_tracker.setTotalMm(millis(), total_mm);
+    xSemaphoreGive(s_lock);
+    Serial.printf("# odometer resync %s: %llu mm -> %llu mm\n", ok ? "saved" : "FAILED", (unsigned long long)old,
+                  (unsigned long long)total_mm);
+    return ok;
+  }
+};
+RuntimeOdometer s_odometer;
+}  // namespace
+
+OdometerControl& VehicleRuntime::odometer() { return s_odometer; }
+
 VehicleIdentity& VehicleRuntime::identity() { return s_identity; }
 
 bool VehicleRuntime::canStarted() { return s_can_ok; }

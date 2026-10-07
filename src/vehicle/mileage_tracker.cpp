@@ -45,6 +45,8 @@ TripEvent MileageTracker::update(uint32_t now_ms, const TripInput& in, bool spee
   if (ev == TripEvent::Started) _mileage.startTrip();
 
   if (speed_valid) {
+    _obd_ever_valid = true;
+    _last_obd_valid_ms = now_ms;
     _mileage.update(now_ms, in.speed_kmh);
   } else {
     _mileage.breakContinuity();
@@ -60,6 +62,22 @@ TripEvent MileageTracker::update(uint32_t now_ms, const TripInput& in, bool spee
   // periodic saves simply stay due until one succeeds.
   if (_save_pending || _policy.due(now_ms, _mileage.totalMm())) save(now_ms);
   return ev;
+}
+
+bool MileageTracker::addGpsDistance(uint32_t now_ms, uint64_t mm, uint32_t interval_start_ms) {
+  if (_obd_ever_valid && (int32_t)(interval_start_ms - _last_obd_valid_ms) <= 0) return false;
+  if (!mm) return true;
+  _mileage.addExternal(mm);
+  if (_policy.due(now_ms, _mileage.totalMm())) save(now_ms);
+  return true;
+}
+
+bool MileageTracker::setTotalMm(uint32_t now_ms, uint64_t total_mm) {
+  uint64_t old = _mileage.totalMm();
+  _mileage.setTotal(total_mm);
+  if (save(now_ms)) return true;
+  _mileage.setTotal(old);
+  return false;
 }
 
 bool MileageTracker::shutdown(uint32_t now_ms) {
