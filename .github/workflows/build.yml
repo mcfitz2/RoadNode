@@ -22,4 +22,4 @@ jobs:
       - run: pip install platformio
       - run: scripts/check_no_raw_can.sh
       - run: pio test -d host
-      - run: pio run -e heltec_v4_roadnode -e heltec_v4_cansniffer -e heltec_v4_canloopback -e heltec_v4_obdmonitor
+      - run: pio run -e heltec_v4_roadnode -e heltec_v4_cansniffer -e heltec_v4_canloopback -e heltec_v4_obdmonitor -e rp2040_ecusim
