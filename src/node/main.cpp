@@ -68,7 +68,12 @@ protected:
     alertIf(batt_voltage < 3.4f, critical_batt, HIGH_PRI_ALERT, "Battery is critical!");
     alertIf(batt_voltage < 3.6f, low_batt, LOW_PRI_ALERT, "Battery is low");
 
-        roadnode::vehicle::VehicleSnapshot snap = roadnode::vehicle::VehicleRuntime::telemetry().snapshot();
+    // Trip-end timestamp: only once GPS has set the RTC (a stock RTC holds an arbitrary value).
+#if ENV_INCLUDE_GPS
+    if (sensors.clockFromGps()) roadnode::vehicle::VehicleRuntime::setTime(getRTCClock()->getCurrentTime());
+#endif
+
+    roadnode::vehicle::VehicleSnapshot snap = roadnode::vehicle::VehicleRuntime::telemetry().snapshot();
     roadnode::vehicle::AlertConditions c = vehicle_alerts.update(snap, millis());
     char text[64];
     positionText(text, sizeof(text), "Vehicle started");

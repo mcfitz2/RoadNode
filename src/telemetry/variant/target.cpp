@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include "target.h"
 
-HeltecV4Board board;
+roadnode::RoadNodeBoard board;
 
 #if defined(P_LORA_SCLK)
   static SPIClass spi;

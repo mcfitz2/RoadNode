@@ -35,6 +35,7 @@ void RoadNodeSensorManager::loop() {
   _gps_trip_was_active = trip;
 
   bool valid = _location->isValid();
+  if (valid) _clock_from_gps = true;
   _gps_track.update(now, valid, valid ? (int32_t)_location->getLatitude() : 0, valid ? (int32_t)_location->getLongitude() : 0);
 }
 #endif

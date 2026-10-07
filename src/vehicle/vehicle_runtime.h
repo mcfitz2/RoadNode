@@ -21,8 +21,13 @@ public:
   // Latest published state. Valid (all unknown) even if begin() was never called.
   static const VehicleTelemetry& telemetry();
 
-  // Checkpoint the odometer now (before intentional shutdown/sleep).
+  // Checkpoint the odometer now (before intentional shutdown/sleep). Safe from any task. False
+  // if begin() has not run, the poll task did not yield in 2 s, or the write failed.
   static bool shutdown();
+
+  // Unix time for the odometer record's last-trip timestamp. Call only with a trustworthy clock
+  // (a stock MeshCore RTC with no sync holds an arbitrary value). No-op before begin().
+  static void setTime(uint32_t unix_seconds);
 
   // Reported by begin(): false if the CAN driver failed to start.
   static bool canStarted();

@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "can/can_manager.h"
@@ -33,12 +34,16 @@ VehicleTelemetry s_telemetry;
 obd::ObdManager s_obd(s_bus, obd::genericProfile());
 VehiclePoller s_poller(s_obd, s_bus, s_tracker, s_telemetry);
 
+SemaphoreHandle_t s_lock = nullptr;  // serialises poller step() with shutdown() (different tasks)
 bool s_started = false;
 bool s_can_ok = false;
 
 void pollTask(void*) {
   for (;;) {
-    s_poller.step(millis());
+    if (xSemaphoreTake(s_lock, portMAX_DELAY) == pdTRUE) {
+      s_poller.step(millis());
+      xSemaphoreGive(s_lock);
+    }
     vTaskDelay(pdMS_TO_TICKS(s_obd.profile().poll_interval_ms));
   }
 }
@@ -48,6 +53,7 @@ void pollTask(void*) {
 bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
   if (s_started) return s_can_ok;
   s_started = true;
+  s_lock = xSemaphoreCreateMutex();
 
   can::Config cfg;
   cfg.bitrate_bps = CAN_BITRATE;
@@ -71,7 +77,21 @@ bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
 
 const VehicleTelemetry& VehicleRuntime::telemetry() { return s_telemetry; }
 
-bool VehicleRuntime::shutdown() { return s_tracker.shutdown(millis()); }
+// Called from the MeshCore task before a reboot or power off. Waits for a poll step in progress
+// (a DTC read can block for a few request timeouts); if it does not finish in time, skips the
+// save rather than write the tracker from two tasks.
+bool VehicleRuntime::shutdown() {
+  if (!s_started || !s_lock) return false;
+  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+  bool ok = s_tracker.shutdown(millis());
+  xSemaphoreGive(s_lock);  // reboot follows; the poll task may resume until then, which is harmless
+  return ok;
+}
+
+// A plain aligned 32-bit store: the poll task reads it only when a trip ends.
+void VehicleRuntime::setTime(uint32_t unix_seconds) {
+  if (s_started) s_tracker.setTime(unix_seconds);
+}
 
 VehicleIdentity& VehicleRuntime::identity() { return s_identity; }
 

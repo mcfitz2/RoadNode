@@ -22,11 +22,14 @@ public:
   bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
 #if ENV_INCLUDE_GPS
   void loop() override;
+  // True once a GNSS fix has been seen this boot, i.e. MeshCore has set the RTC from GPS time.
+  bool clockFromGps() const { return _clock_from_gps; }
 
 private:
   gps::GpsTrack _gps_track;
   uint32_t _gps_last_ms = 0;
   bool _gps_trip_was_active = false;
+  bool _clock_from_gps = false;
 #endif
 };
 

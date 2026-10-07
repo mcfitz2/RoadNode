@@ -52,3 +52,18 @@ Stored in NVS namespace `roadnode_cfg` (`NvsKvStore`), separate from the mileage
   stored / check digit / mismatch). Admin command replies travel over the mesh, so they stay VIN-free.
 
 Unverified on hardware: NVS persistence across power cycles, real ECU VIN reads.
+
+## Checkpoint on reboot / power off, and the trip timestamp (#54, #55)
+
+- **Reboot/power off (#54).** `RoadNodeBoard` (`src/telemetry/roadnode_board.h`, used as `board` in the shadowed
+  `target.{h,cpp}`) overrides MeshCore's `reboot()` and `powerOff()`, so the admin `reboot`, `poweroff`, `shutdown`
+  and `clkreboot` commands call `VehicleRuntime::shutdown()` first. That waits up to 2 s for a poll step in progress
+  (mutex shared with the poll task) and skips the save if it cannot get it, rather than write from two tasks.
+  Not covered: OTA (the restart happens inside the update handler) and a power cut, which still lose up to
+  0.5 mile / 2 minutes. Trip end already checkpoints, so normal parking is unaffected.
+- **Timestamp (#55).** `last_trip_timestamp` is set from the MeshCore RTC at trip end, but only once a GNSS fix has been
+  seen this boot (the RTC is then GPS-set). A stock RTC with no sync holds an arbitrary value, so before a fix the
+  timestamp stays as it was. An admin `clock sync` alone does not enable it.
+
+Verified: the tracker's use of the timestamp (host tests). Not verified: the board overrides running on the ESP32,
+and the GPS-set RTC (no fix on the bench).
