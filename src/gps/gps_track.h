@@ -26,17 +26,25 @@ struct GpsTrackState {
   bool has_heading = false;  // set after the first accepted step; kept while stopped
   uint16_t heading_deg = 0;  // 0-359, true north
   uint64_t trip_mm = 0;      // since resetTrip() / boot
+  uint32_t trip_fix_ms = 0;    // time with a current fix since resetTrip(), for trip comparison (#43)
+  uint32_t trip_total_ms = 0;  // time sampled since resetTrip()
 };
 
 class GpsTrack {
 public:
   explicit GpsTrack(const GpsTrackConfig& cfg = GpsTrackConfig()) : _cfg(cfg) {}
 
-  // One call per sample (about 1 Hz). valid=false means no current fix.
+  // One call per sample (about 1 Hz), fix or not: calls with valid=false are what
+  // lets trip coverage be measured. valid=false means no current fix.
   // lat/lon in degrees * 1e6, the unit MeshCore's LocationProvider uses.
   void update(uint32_t now_ms, bool valid, int32_t lat_e6, int32_t lon_e6);
 
-  void resetTrip() { _trip_mm = 0; }
+  void resetTrip() {
+    _trip_mm = 0;
+    _trip_fix_ms = 0;
+    _trip_total_ms = 0;
+    _have_call = false;  // the gap before the reset is not part of the new trip
+  }
   GpsTrackState state(uint32_t now_ms) const;
 
   static float distanceM(int32_t lat1_e6, int32_t lon1_e6, int32_t lat2_e6, int32_t lon2_e6);
@@ -55,6 +63,10 @@ private:
   bool _has_heading = false;
   uint16_t _heading = 0;
   uint64_t _trip_mm = 0;
+  uint32_t _trip_fix_ms = 0;
+  uint32_t _trip_total_ms = 0;
+  bool _have_call = false;
+  uint32_t _last_call_ms = 0;
   double _frac_mm = 0;
 };
 

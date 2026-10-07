@@ -34,6 +34,7 @@ MeshCore clients can already decode and display it. No custom packet type.
 | 14 | GPS trip distance | distance | metres since trip start, cap 4,294,000 | 6 | needs a current GNSS fix |
 | 15 | GPS speed | analog input | km/h from position change | 4 | needs a fix and two accepted steps |
 | 16 | GPS heading | direction | degrees 0-359 | 4 | after the first accepted step |
+| 17 | Last trip GPS/OBD ratio | analog input | percent, 0.1 resolution (98.3 = GPS saw 98.3% of the OBD distance) | 4 | after a finished trip with a valid comparison; location-permission requesters only |
 
 Fields with no fresh value are **omitted, never sent as zero**.
 
@@ -185,7 +186,16 @@ stays on MeshCore's channel 1.
 - Privacy: channels 14-16 are sent only to requesters with location permission and only while GNSS is
   active, the same rule as channel 1. Adverts still never carry live position.
 - Compatibility: appended channels only; the existing bytes are unchanged (tested). Worst case with
-  everything present is about 134 bytes plus channel 1, within the 180 byte limit.
+  everything present is about 138 bytes plus channel 1, within the 180 byte limit.
+
+**OBD vs GPS distance (#43)** is computed at each trip end by `src/gps/trip_compare.{h,cpp}`:
+ratio = GPS trip distance / OBD trip distance. The GPS side is frozen at the trip-end edge (it keeps
+accumulating afterwards) and is a lower bound (chords cut curves, no-fix gaps are not integrated), so a
+result is only valid when the OBD trip is at least 1 km and GPS had a fix for at least 90% of the trip;
+otherwise it is "n/a", never zero. Outside 95-105% is flagged SUSPECT. Those thresholds are guesses until
+real drives. Logged as one serial line (`# trip end: obd .. m gps .. m cover ..% ratio ..% ok|SUSPECT`, no
+coordinates) and kept in RAM as channel 17 until the next trip ends; it is lost on reboot. A persistent
+per-trip log waits on #52.
 
 Verified by host tests only (synthetic fixes). Not verified on hardware: a real fix and NMEA parsing,
 RTC set from GPS time, pins, how stock clients display channels 14-16.

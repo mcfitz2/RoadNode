@@ -349,6 +349,21 @@ void test_gps_extras_roundtrip_and_separate_from_obd() {
   TEST_ASSERT_FLOAT_WITHIN(0.01, (double)(s.trip_mm / 1000.0), d.trip_m);
 }
 
+void test_trip_ratio_roundtrip_and_omitted_when_invalid() {
+  roadnode::gps::TripCompareResult r;
+  r.valid = true;
+  r.ratio_pm = 983;
+  ModelLpp lpp;
+  encodeTripCompare(r, lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_TRUE(d.has_trip_ratio);
+  TEST_ASSERT_FLOAT_WITHIN(0.02, 98.3, d.trip_ratio_pct);
+  ModelLpp none;
+  encodeTripCompare(roadnode::gps::TripCompareResult(), none);
+  TEST_ASSERT_EQUAL(0, none.buf.size());
+}
+
 void test_gps_extras_omitted_without_fix_or_motion() {
   VehicleSnapshot s = driving();
   roadnode::gps::GpsTrackState none;
@@ -388,9 +403,13 @@ void test_worst_case_with_gps_fits() {
   s.dtc_count = (uint8_t)VehicleSnapshot::MAX_DTCS;
   roadnode::gps::GpsTrackState g;
   g.has_fix = g.has_motion = g.has_heading = true;
+  roadnode::gps::TripCompareResult tr;
+  tr.valid = true;
+  tr.ratio_pm = 1000;
   ModelLpp lpp(180);
   encodeVehicle(s, lpp);
   encodeGps(g, lpp);
+  encodeTripCompare(tr, lpp);
   TEST_ASSERT_FALSE(lpp.overflow);
   TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
 }
@@ -417,6 +436,7 @@ int main() {
   RUN_TEST(test_percentages_clamped);
   RUN_TEST(test_worst_case_with_slow_values_fits);
   RUN_TEST(test_gps_extras_roundtrip_and_separate_from_obd);
+  RUN_TEST(test_trip_ratio_roundtrip_and_omitted_when_invalid);
   RUN_TEST(test_gps_extras_omitted_without_fix_or_motion);
   RUN_TEST(test_gps_extension_does_not_change_existing_encoding);
   RUN_TEST(test_worst_case_with_gps_fits);

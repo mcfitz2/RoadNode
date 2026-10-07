@@ -114,6 +114,23 @@ void test_position_jump_not_counted() {
   TEST_ASSERT_EQUAL((int)before, (int)g.state(t).trip_mm);
 }
 
+void test_trip_coverage_counts_fix_time_and_resets() {
+  GpsTrack g;
+  g.resetTrip();
+  uint32_t t = 1000;
+  g.update(t, true, 45000000, -93000000);
+  for (int i = 0; i < 6; i++) g.update(t += 1000, true, 45000000, -93000000);  // 6 s with fix
+  for (int i = 0; i < 4; i++) g.update(t += 1000, false, 0, 0);                // 4 s without
+  GpsTrackState s = g.state(t);
+  TEST_ASSERT_EQUAL(6000, s.trip_fix_ms);
+  TEST_ASSERT_EQUAL(10000, s.trip_total_ms);
+  g.resetTrip();
+  g.update(t += 1000, true, 45000000, -93000000);  // first sample after a reset has no interval yet
+  s = g.state(t);
+  TEST_ASSERT_EQUAL(0, s.trip_fix_ms);
+  TEST_ASSERT_EQUAL(0, s.trip_total_ms);
+}
+
 void test_reset_trip() {
   GpsTrack g;
   uint32_t t = 0;
@@ -142,6 +159,7 @@ int main() {
   RUN_TEST(test_fix_loss_gap_not_integrated);
   RUN_TEST(test_fix_loss_reads_unknown);
   RUN_TEST(test_position_jump_not_counted);
+  RUN_TEST(test_trip_coverage_counts_fix_time_and_resets);
   RUN_TEST(test_reset_trip);
   RUN_TEST(test_no_drift_over_many_small_steps);
   return UNITY_END();

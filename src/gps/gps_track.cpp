@@ -26,6 +26,13 @@ float GpsTrack::bearingDeg(int32_t lat1, int32_t lon1, int32_t lat2, int32_t lon
 }
 
 void GpsTrack::update(uint32_t now_ms, bool valid, int32_t lat, int32_t lon) {
+  if (_have_call) {
+    uint32_t dt = now_ms - _last_call_ms;
+    _trip_total_ms += dt;
+    if (valid) _trip_fix_ms += dt;
+  }
+  _have_call = true;
+  _last_call_ms = now_ms;
   if (!valid) return;
   bool gap = _ever_fix && (uint32_t)(now_ms - _last_fix_ms) > _cfg.max_gap_ms;
   _last_fix_ms = now_ms;
@@ -71,6 +78,8 @@ void GpsTrack::update(uint32_t now_ms, bool valid, int32_t lat, int32_t lon) {
 GpsTrackState GpsTrack::state(uint32_t now_ms) const {
   GpsTrackState s;
   s.trip_mm = _trip_mm;
+  s.trip_fix_ms = _trip_fix_ms;
+  s.trip_total_ms = _trip_total_ms;
   s.has_fix = _ever_fix && (uint32_t)(now_ms - _last_fix_ms) <= _cfg.max_gap_ms;
   if (!s.has_fix) return s;
   s.has_heading = _has_heading;

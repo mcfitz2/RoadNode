@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "gps/gps_track.h"
+#include "gps/trip_compare.h"
 #include "vehicle/vehicle_state.h"
 
 // Vehicle telemetry as Cayenne LPP (spec: docs/telemetry.md, issue #31).
@@ -28,6 +29,7 @@ constexpr uint8_t CH_FUEL = 13;            // LPP percentage, fuel level
 constexpr uint8_t CH_GPS_TRIP = 14;        // LPP distance, metres travelled per GPS (separate from the OBD trip, channel 3)
 constexpr uint8_t CH_GPS_SPEED = 15;       // LPP analog input, km/h from GPS position change
 constexpr uint8_t CH_GPS_HEADING = 16;     // LPP direction, degrees 0-359
+constexpr uint8_t CH_TRIP_RATIO = 17;      // LPP analog input, last trip GPS/OBD distance in percent (#43)
 constexpr uint8_t CH_DTC = 9;              // LPP generic sensor, repeated: kind << 16 | raw code
 
 constexpr uint8_t STATE_VEHICLE_ACTIVE = 1 << 0;
@@ -94,6 +96,14 @@ void encodeGps(const gps::GpsTrackState& g, Lpp& lpp) {
   if (g.has_heading) lpp.addDirection(CH_GPS_HEADING, g.heading_deg);
 }
 
+// Last finished trip's GPS/OBD distance ratio (#43), percent. Only a valid result is sent;
+// derived from GPS, so the caller gates it like the other GPS channels.
+template <class Lpp>
+void encodeTripCompare(const gps::TripCompareResult& r, Lpp& lpp) {
+  if (!r.valid) return;
+  lpp.addAnalogInput(CH_TRIP_RATIO, r.ratio_pm / 10.0f);
+}
+
 struct DecodedDtc {
   uint8_t kind = 0;   // vehicle::DtcKind
   uint16_t raw = 0;   // two wire bytes
@@ -126,6 +136,8 @@ struct DecodedVehicle {
   double gps_speed_kmh = 0;
   bool has_gps_heading = false;
   uint16_t gps_heading = 0;
+  bool has_trip_ratio = false;
+  double trip_ratio_pct = 0;
   bool has_dtc_count = false;
   uint8_t dtc_total = 0;
   uint8_t dtc_n = 0;
@@ -194,6 +206,9 @@ inline bool decodeVehicle(const uint8_t* buf, size_t len, DecodedVehicle& out) {
     } else if (ch == CH_GPS_HEADING && type == 132) {
       out.has_gps_heading = true;
       out.gps_heading = (uint16_t)u;
+    } else if (ch == CH_TRIP_RATIO && type == 2) {
+      out.has_trip_ratio = true;
+      out.trip_ratio_pct = (int16_t)(uint16_t)u / 100.0;
     } else if (ch == CH_DTC_COUNT && type == 0) {
       out.has_dtc_count = true;
       out.dtc_total = (uint8_t)u;
