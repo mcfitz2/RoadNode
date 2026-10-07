@@ -67,3 +67,7 @@ R8 boards differ (VEXT=40, GNSS enable=42, LED=46, octal PSRAM on GPIO33-37). No
 10. Keep the CAN hardware electrically independent from the LoRa hardware.
 11. Start with listen-only CAN monitoring before transmitting anything to a vehicle.
 12. Test the 2006 RAV4 first; it is the reference implementation.
+
+## License
+
+MIT, see `LICENSE`. MeshCore (`vendor/MeshCore`) and files derived from it are covered by its own MIT notice: see `THIRD_PARTY_NOTICES.md`.

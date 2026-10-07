@@ -1,3 +1,4 @@
+// Derived from MeshCore (MIT, see THIRD_PARTY_NOTICES.md).
 // RoadNode copy of vendor/MeshCore/examples/simple_sensor/main.cpp. Differences from
 // the vendor file are limited to the alert logic in MyMesh (engine start / parked
 // alerts carrying position). Re-diff against the vendor file on every MeshCore bump.

@@ -1,5 +1,6 @@
 #pragma once
 
+// Derived from MeshCore (MIT, see THIRD_PARTY_NOTICES.md).
 // RoadNode copy of vendor/MeshCore/variants/heltec_v4/target.h. The only change
 // is the type of `sensors`, which lets RoadNode add vehicle telemetry without
 // editing the submodule. It shadows the vendor header via include order.

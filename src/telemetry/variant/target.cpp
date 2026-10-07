@@ -1,3 +1,4 @@
+// Derived from MeshCore (MIT, see THIRD_PARTY_NOTICES.md).
 // RoadNode copy of vendor/MeshCore/variants/heltec_v4/target.cpp. Only the type of
 // `sensors` differs. Re-diff against the vendor file on every MeshCore bump.
 #include <Arduino.h>
