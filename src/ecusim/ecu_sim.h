@@ -17,6 +17,13 @@ struct DtcSet {
   size_t count = 0;
 };
 
+// Deliberately broken replies, to exercise the node's error handling.
+enum class Corrupt : uint8_t {
+  None,
+  ShortFrame,       // first reply frame is shorter than its own length byte says (node: Malformed)
+  SkipConsecutive,  // multi-frame reply loses its second consecutive frame (node: Malformed, sequence gap)
+};
+
 struct EcuScenario {
   // Mode 01 values. Overwritten every update() while drive_cycle is on (speed, rpm).
   float speed_kmh = 0;
@@ -35,6 +42,9 @@ struct EcuScenario {
   bool vin_supported = true;
 
   bool silent = false;       // answers nothing at all (bus silence on the ECU side)
+  uint32_t reply_delay_ms = 0;  // first reply frame is held back this long
+  uint8_t pending_frames = 0;   // send this many "7F mode 78" (response pending) frames before the real reply
+  Corrupt corrupt = Corrupt::None;
   uint32_t ignore_modes = 0; // bit n set: mode n is never answered (many ECUs ignore 0A)
   bool drive_cycle = false;  // speed follows driveSpeedKmh()
 };
@@ -78,11 +88,12 @@ private:
   void mode01(uint8_t pid);
   void dtcMode(uint8_t mode, const DtcSet& s);
   void mode09(uint8_t pid);
-  void push(const obd::CanFrame& f);
+  void push(const obd::CanFrame& f, uint32_t delay_ms = 0);
   void sendConsecutive();
 
   EcuScenario _sc;
   obd::CanFrame _q[QUEUE];
+  uint32_t _ready[QUEUE] = {0};  // time each queued frame may be released
   size_t _qh = 0, _qn = 0;
 
   // Multi-frame response waiting for the flow-control frame.

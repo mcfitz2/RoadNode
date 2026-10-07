@@ -19,10 +19,11 @@ bool handleEcuCommand(EcuSim& ecu, char* line, char* reply, size_t n) {
   reply[0] = 0;
 
   if (strcmp(cmd, "status") == 0) {
-    snprintf(reply, n, "cycle=%s speed=%.0f rpm=%.0f dtc=%u/%u/%u vin=%s silent=%s ignore=0x%lX req=%lu forbidden=%lu dist=%.0fm",
+    snprintf(reply, n, "cycle=%s speed=%.0f rpm=%.0f dtc=%u/%u/%u vin=%s silent=%s delay=%lums pending=%u corrupt=%u ignore=0x%lX req=%lu forbidden=%lu dist=%.0fm",
              sc.drive_cycle ? "on" : "off", sc.speed_kmh, sc.rpm, (unsigned)sc.stored.count,
              (unsigned)sc.pending.count, (unsigned)sc.permanent.count, sc.vin_supported ? sc.vin : "none",
-             sc.silent ? "on" : "off", (unsigned long)sc.ignore_modes, (unsigned long)ecu.requests(),
+             sc.silent ? "on" : "off", (unsigned long)sc.reply_delay_ms, (unsigned)sc.pending_frames,
+             (unsigned)sc.corrupt, (unsigned long)sc.ignore_modes, (unsigned long)ecu.requests(),
              (unsigned long)ecu.forbiddenRequests(), ecu.distanceM());
     return true;
   }
@@ -30,6 +31,26 @@ bool handleEcuCommand(EcuSim& ecu, char* line, char* reply, size_t n) {
     sc.drive_cycle = isOn(a);
     if (sc.drive_cycle) ecu.resetDistance();
     snprintf(reply, n, "OK cycle %s", sc.drive_cycle ? "on" : "off");
+    return true;
+  }
+  if (strcmp(cmd, "delay") == 0 && a) {
+    sc.reply_delay_ms = (uint32_t)strtoul(a, nullptr, 10);
+    snprintf(reply, n, "OK delay %lu ms", (unsigned long)sc.reply_delay_ms);
+    return true;
+  }
+  if (strcmp(cmd, "pending") == 0 && a) {
+    unsigned long k = strtoul(a, nullptr, 10);
+    if (k > 8) return false;
+    sc.pending_frames = (uint8_t)k;
+    snprintf(reply, n, "OK pending %lu", k);
+    return true;
+  }
+  if (strcmp(cmd, "corrupt") == 0 && a) {
+    if (strcmp(a, "none") == 0) sc.corrupt = Corrupt::None;
+    else if (strcmp(a, "short") == 0) sc.corrupt = Corrupt::ShortFrame;
+    else if (strcmp(a, "skipcf") == 0) sc.corrupt = Corrupt::SkipConsecutive;
+    else return false;
+    snprintf(reply, n, "OK corrupt %s", a);
     return true;
   }
   if (strcmp(cmd, "silent") == 0 && a) {

@@ -21,15 +21,20 @@ public:
   EcuSim ecu;
   uint32_t now = 0;
   bool send(const CanFrame& f) override {
+    ecu.update(now);
     ecu.onFrame(f);
     return true;
   }
+  // Time advances 1 ms at a time so replies held back by the simulator become ready.
   bool receive(CanFrame& f, uint32_t timeout_ms) override {
-    if (ecu.nextFrame(f)) {
+    for (uint32_t t = 0; t <= timeout_ms; t++) {
+      ecu.update(now);
+      if (ecu.nextFrame(f)) {
+        now += 1;
+        return true;
+      }
       now += 1;
-      return true;
     }
-    now += timeout_ms;
     return false;
   }
   uint32_t nowMs() override { return now; }
@@ -157,6 +162,57 @@ void test_drive_cycle_distance_matches_integral() {
   TEST_ASSERT_EQUAL_FLOAT(0, ecu.scenario().speed_kmh);
 }
 
+void test_reply_delay_within_and_beyond_timeout() {
+  SimBus bus;
+  ObdManager m = makeManager(bus);  // generic profile: 200 ms per request
+  float v;
+  bus.ecu.scenario().speed_kmh = 50;
+  bus.ecu.scenario().reply_delay_ms = 100;
+  TEST_ASSERT_EQUAL(Status::Ok, m.readPid(PID_SPEED, v));
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 50, v);
+  bus.ecu.scenario().reply_delay_ms = 500;
+  TEST_ASSERT_EQUAL(Status::Timeout, m.readPid(PID_SPEED, v));
+}
+
+void test_response_pending_frames_are_skipped() {
+  SimBus bus;
+  bus.ecu.scenario().pending_frames = 3;
+  bus.ecu.scenario().speed_kmh = 33;
+  ObdManager m = makeManager(bus);
+  float v;
+  TEST_ASSERT_EQUAL(Status::Ok, m.readPid(PID_SPEED, v));
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 33, v);
+  DtcList l;
+  bus.ecu.scenario().stored.raw[0] = 0x0301;
+  bus.ecu.scenario().stored.count = 1;
+  TEST_ASSERT_EQUAL(Status::Ok, m.readDtcs(DtcMode::Stored, l));
+  TEST_ASSERT_EQUAL(1, l.count);
+}
+
+void test_short_frame_is_malformed_then_recovers() {
+  SimBus bus;
+  ObdManager m = makeManager(bus);
+  float v;
+  bus.ecu.scenario().corrupt = Corrupt::ShortFrame;
+  TEST_ASSERT_EQUAL(Status::Malformed, m.readPid(PID_SPEED, v));
+  bus.ecu.scenario().corrupt = Corrupt::None;
+  TEST_ASSERT_EQUAL(Status::Ok, m.readPid(PID_SPEED, v));
+}
+
+void test_dropped_consecutive_frame_is_malformed_then_recovers() {
+  SimBus bus;
+  DtcSet& d = bus.ecu.scenario().stored;
+  for (int i = 0; i < 12; i++) d.raw[d.count++] = 0x0300 + i;
+  ObdManager m = makeManager(bus);
+  DtcList l;
+  bus.ecu.scenario().corrupt = Corrupt::SkipConsecutive;
+  TEST_ASSERT_EQUAL(Status::Malformed, m.readDtcs(DtcMode::Stored, l));
+  // Leftover consecutive frames from the broken reply must not confuse the next request.
+  bus.ecu.scenario().corrupt = Corrupt::None;
+  TEST_ASSERT_EQUAL(Status::Ok, m.readDtcs(DtcMode::Stored, l));
+  TEST_ASSERT_EQUAL(12, l.count);
+}
+
 void test_commands_change_scenario() {
   EcuSim ecu;
   char reply[160];
@@ -175,6 +231,19 @@ void test_commands_change_scenario() {
   TEST_ASSERT_EQUAL_FLOAT(55, ecu.scenario().speed_kmh);
   char c5[] = "status";
   TEST_ASSERT_TRUE(handleEcuCommand(ecu, c5, reply, sizeof(reply)));
+  char c6[] = "delay 120";
+  TEST_ASSERT_TRUE(handleEcuCommand(ecu, c6, reply, sizeof(reply)));
+  TEST_ASSERT_EQUAL(120, ecu.scenario().reply_delay_ms);
+  char c7[] = "pending 2";
+  TEST_ASSERT_TRUE(handleEcuCommand(ecu, c7, reply, sizeof(reply)));
+  TEST_ASSERT_EQUAL(2, ecu.scenario().pending_frames);
+  char c8[] = "corrupt skipcf";
+  TEST_ASSERT_TRUE(handleEcuCommand(ecu, c8, reply, sizeof(reply)));
+  TEST_ASSERT_EQUAL((int)Corrupt::SkipConsecutive, (int)ecu.scenario().corrupt);
+  char c9[] = "corrupt bogus";
+  TEST_ASSERT_FALSE(handleEcuCommand(ecu, c9, reply, sizeof(reply)));
+  char c10[] = "pending 99";
+  TEST_ASSERT_FALSE(handleEcuCommand(ecu, c10, reply, sizeof(reply)));
   char bad[] = "vin SHORT";
   TEST_ASSERT_FALSE(handleEcuCommand(ecu, bad, reply, sizeof(reply)));
   char nope[] = "frobnicate 1";
@@ -191,6 +260,10 @@ int main() {
   RUN_TEST(test_unsupported_pid_negative_response);
   RUN_TEST(test_forbidden_mode_is_counted_and_refused);
   RUN_TEST(test_drive_cycle_distance_matches_integral);
+  RUN_TEST(test_reply_delay_within_and_beyond_timeout);
+  RUN_TEST(test_response_pending_frames_are_skipped);
+  RUN_TEST(test_short_frame_is_malformed_then_recovers);
+  RUN_TEST(test_dropped_consecutive_frame_is_malformed_then_recovers);
   RUN_TEST(test_commands_change_scenario);
   return UNITY_END();
 }

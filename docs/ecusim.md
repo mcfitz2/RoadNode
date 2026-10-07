@@ -52,6 +52,9 @@ pio device monitor -e rp2040_ecusim
 | `dtc clear` | Empty all lists (simulator state only) |
 | `vin <17 chars>` / `vin none` | Set the VIN, or make mode 09 unsupported |
 | `silent on` / `silent off` | Answer nothing |
+| `delay <ms>` | Hold every reply back this long (the generic profile times out at 200 ms) |
+| `pending <0-8>` | Send this many NRC 0x78 "response pending" frames before the real reply |
+| `corrupt none\|short\|skipcf` | `short`: single-frame reply with a DLC too small for its length byte; `skipcf`: drop consecutive frame 2 of a multi-frame reply |
 | `ignore 0A` / `unignore 0A` | Never answer one mode (many real ECUs ignore 0A) |
 
 The driven distance is the exact integral of the simulated speed, so odometer drift can be checked:
@@ -68,10 +71,10 @@ The simulator speaks the standard; a real ECU may differ (response timing, 0x78 
 
 ## Not yet implemented
 
-Fault injection beyond silence and ignored modes: delayed replies, 0x78 response-pending, malformed or
-dropped consecutive frames, bus-off. Tracked in #59.
+Bus-off. The simulator cannot force it: the node's CAN controller has to be driven into it, e.g. by shorting
+CANH to CANL or running the bus at a mismatched bitrate. Tracked in #59.
 
 ## Verification status
 
-Host tests (213 pass) and the `rp2040_ecusim` env compiles (CI builds it). Not run on the RP2040; the crystal, library behaviour
+Host tests (all pass, including delay/pending/corrupt fault injection) and the `rp2040_ecusim` env compiles (CI builds it). Not run on the RP2040; the crystal, library behaviour
 (`Adafruit_MCP2515` receive-all, 11-bit frames) and wiring are unverified on hardware.

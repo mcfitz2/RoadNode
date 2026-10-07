@@ -31,14 +31,17 @@ void EcuSim::update(uint32_t now_ms) {
   _distance_m += (double)_sc.speed_kmh / 3.6 * dt / 1000.0;
 }
 
-void EcuSim::push(const CanFrame& f) {
+void EcuSim::push(const CanFrame& f, uint32_t delay_ms) {
   if (_qn >= QUEUE) return;  // never happens with one request in flight; drop rather than overwrite
-  _q[(_qh + _qn) % QUEUE] = f;
+  size_t i = (_qh + _qn) % QUEUE;
+  _q[i] = f;
+  _ready[i] = _last_ms + delay_ms;
   _qn++;
 }
 
 bool EcuSim::nextFrame(CanFrame& out) {
   if (_qn == 0) return false;
+  if ((int32_t)(_last_ms - _ready[_qh]) < 0) return false;  // held back by reply_delay_ms
   out = _q[_qh];
   _qh = (_qh + 1) % QUEUE;
   _qn--;
@@ -168,16 +171,28 @@ void EcuSim::respond(const uint8_t* payload, size_t len) {
   f.id = RESPONSE_ID;
   f.dlc = 8;
   memset(f.data, 0x55, 8);
+  // Response pending (NRC 0x78): the ECU is busy, the real reply follows. Not for negative replies.
+  if (payload[0] != 0x7F) {
+    for (uint8_t i = 0; i < _sc.pending_frames; i++) {
+      CanFrame p = f;
+      p.data[0] = 3;
+      p.data[1] = 0x7F;
+      p.data[2] = payload[0] - 0x40;
+      p.data[3] = 0x78;
+      push(p);
+    }
+  }
   if (len <= 7) {
     f.data[0] = (uint8_t)len;
     memcpy(f.data + 1, payload, len);
-    return push(f);
+    if (_sc.corrupt == Corrupt::ShortFrame) f.dlc = (uint8_t)len;  // one byte short of what data[0] claims
+    return push(f, _sc.reply_delay_ms);
   }
   if (len > MAX_PAYLOAD) return;
   f.data[0] = 0x10 | (uint8_t)(len >> 8);
   f.data[1] = (uint8_t)len;
   memcpy(f.data + 2, payload, 6);
-  push(f);
+  push(f, _sc.reply_delay_ms);
   memcpy(_pend, payload, len);
   _pend_len = len;
   _pend_sent = 6;
@@ -195,7 +210,7 @@ void EcuSim::sendConsecutive() {
     size_t n = _pend_len - _pend_sent;
     if (n > 7) n = 7;
     memcpy(f.data + 1, _pend + _pend_sent, n);
-    push(f);
+    if (!(_sc.corrupt == Corrupt::SkipConsecutive && _pend_seq == 2)) push(f);  // else: sequence gap
     _pend_sent += n;
     _pend_seq++;
   }

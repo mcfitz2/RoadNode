@@ -49,7 +49,7 @@ void setup() {
     Serial.println("MCP25625 init failed (check crystal setting and wiring)");
     while (1) delay(1000);
   }
-  Serial.println("ECU simulator ready. Commands: status, cycle on|off, dtc 03 0301, vin none, silent on ...");
+  Serial.println("ECU simulator ready. Commands: status, cycle on|off, dtc 03 0301, vin none, silent on, delay <ms>, pending <0-8>, corrupt none|short|skipcf ...");
 }
 
 void loop() {
