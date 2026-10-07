@@ -23,4 +23,14 @@ jobs:
       - run: scripts/check_no_raw_can.sh
       - run: scripts/check_vendor_drift.sh
       - run: pio test -d host
-      - run: pio run -e heltec_v4_roadnode -e heltec_v4_cansniffer -e heltec_v4_canloopback -e heltec_v4_obdmonitor -e rp2040_ecusim
+      - name: Build firmware
+        run: pio run -e heltec_v4_roadnode -e heltec_v4_cansniffer -e heltec_v4_canloopback -e heltec_v4_obdmonitor -e rp2040_ecusim 2>&1 | tee build.log
+      - name: Size report
+        run: scripts/size_report.sh build.log >> "$GITHUB_STEP_SUMMARY"
+      - name: Merge flashable image
+        run: pio run -e heltec_v4_roadnode -t mergebin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roadnode-heltec_v4-${{ github.sha }}
+          path: .pio/build/heltec_v4_roadnode/firmware-merged.bin
+          if-no-files-found: error
