@@ -178,6 +178,12 @@ void setup() {
 
   sensors.begin();
 
+  // RoadNode forwards other nodes' packets by default (stock sensor default is off). Set before
+  // begin() so persisted prefs win: a saved 'set repeat off' survives reboots.
+#ifndef REPEAT_DEFAULT_ON
+#define REPEAT_DEFAULT_ON 1
+#endif
+  the_mesh.getNodePrefs()->disable_fwd = !REPEAT_DEFAULT_ON;
   the_mesh.begin(fs);
   the_mesh.loadVehicleSettings();
 

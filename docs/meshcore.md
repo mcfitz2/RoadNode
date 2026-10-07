@@ -146,3 +146,12 @@ Test build of stock `heltec_v4_sensor` on macOS (PlatformIO CLI): **SUCCESS** in
 - `RoadNodeSensorManager` (`src/telemetry/`) extends `EnvironmentSensorManager`: `begin()` starts the runtime, `querySensors()` strips location and appends `encodeVehicle`.
 - The submodule is unmodified. `src/telemetry/variant/target.{h,cpp}` are copies of the vendor heltec_v4 files with only the types of `sensors` and `board` changed. `-I src/telemetry/variant` precedes the vendor variant include, and the vendor `target.cpp` is excluded. **Re-diff both files on every MeshCore bump.** `scripts/check_vendor_drift.sh` (run in CI) fails when any shadowed vendor file (these two and `examples/simple_sensor/main.cpp`, copied to `src/node/main.cpp`) differs from the version recorded in `scripts/vendor_baseline.txt`. On a bump: run it, diff each reported file with `git -C vendor/MeshCore diff <old> HEAD -- <file>`, port what matters into the RoadNode copy, then `scripts/check_vendor_drift.sh --update` and commit the new baseline.
 - Pin finding: `ESP32Board::begin()` calls `Wire.begin()` on the default pins, which on heltec_v4 are SDA=3/SCL=4, the same as CAN TX/RX. The roadnode env defines `PIN_BOARD_SDA=17 PIN_BOARD_SCL=18` to move I2C away. Assumes GPIO17/18 are free on the no-OLED board; verify on hardware (scope CAN TX).
+
+## Repeating (forwarding other nodes' packets)
+
+`SensorMesh::allowPacketForward` forwards unless `disable_fwd` is set, and stock sensor nodes default it to
+off. RoadNode defaults it **on** for a fresh install (`src/node/main.cpp`, `-D REPEAT_DEFAULT_ON=0` flips the
+default). The default is applied before MeshCore loads its saved prefs, so an admin `set repeat off` persists
+across reboots; `get repeat` shows the state. Flood forwarding stops at `flood_max` hops. Cost: a moving node
+is a poor repeater (coverage comes and goes as it drives) and forwarding adds radio airtime and parked power
+draw (#37, #38); turn it off with `set repeat off` if either matters. An already-provisioned unit keeps its saved setting.
