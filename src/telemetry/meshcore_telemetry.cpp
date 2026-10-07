@@ -16,6 +16,9 @@ bool RoadNodeSensorManager::begin() {
 #else
   vehicle::VehicleRuntime::begin(VEHICLE_ID, false);
 #endif
+#if ENV_INCLUDE_GPS
+  gps::loadTripCompare(_kv, _last_trip_compare);  // last trip's OBD/GPS result survives a reboot (#43)
+#endif
   return EnvironmentSensorManager::begin();
 }
 
@@ -34,6 +37,7 @@ void RoadNodeSensorManager::loop() {
   if (!trip && _gps_trip_was_active) {  // trip just ended: freeze the GPS side before it drifts on
     gps::GpsTrackState g = _gps_track.state(now);
     _last_trip_compare = gps::compareTrip(snap.trip_mm, g.trip_mm, g.trip_fix_ms, g.trip_total_ms);
+    if (!gps::saveTripCompare(_kv, _last_trip_compare)) Serial.println("# trip compare: save failed");
     const gps::TripCompareResult& r = _last_trip_compare;
     Serial.printf("# trip end: obd %lu m gps %lu m cover %u.%u%%", (unsigned long)r.obd_m, (unsigned long)r.gps_m,
                   r.coverage_pm / 10, r.coverage_pm % 10);

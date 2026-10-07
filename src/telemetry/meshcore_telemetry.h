@@ -6,6 +6,7 @@
 
 #include "gps/gps_track.h"
 #include "gps/trip_compare.h"
+#include "storage/nvs_kv_store.h"
 
 namespace roadnode {
 
@@ -28,6 +29,7 @@ public:
 
 private:
   gps::GpsTrack _gps_track;
+  storage::NvsKvStore _kv;
   gps::TripCompareResult _last_trip_compare;  // OBD vs GPS distance of the last finished trip (#43)
   uint32_t _gps_last_ms = 0;
   bool _gps_trip_was_active = false;

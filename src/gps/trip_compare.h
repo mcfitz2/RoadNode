@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "storage/kv_store.h"
+
 // OBD vs GPS trip distance comparison (issue #43, plan section 17). Pure logic,
 // MeshCore-free. The GPS distance is a lower bound by construction (chords cut
 // curves, fixes lost for a while are not integrated), so a trip only yields a
@@ -28,6 +30,12 @@ struct TripCompareResult {
 
 TripCompareResult compareTrip(uint64_t obd_mm, uint64_t gps_mm, uint32_t fix_ms, uint32_t total_ms,
                               const TripCompareConfig& cfg = TripCompareConfig());
+
+// Keeps the last trip's result across reboots (one small NVS string, written once per trip).
+// The latest trip always replaces it, so an n/a trip does not leave an older valid ratio on display.
+bool saveTripCompare(storage::KvStore& kv, const TripCompareResult& r);
+// False (and out untouched) if nothing is stored or the stored value is malformed.
+bool loadTripCompare(storage::KvStore& kv, TripCompareResult& out);
 
 }  // namespace gps
 }  // namespace roadnode

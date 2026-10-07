@@ -194,8 +194,9 @@ accumulating afterwards) and is a lower bound (chords cut curves, no-fix gaps ar
 result is only valid when the OBD trip is at least 1 km and GPS had a fix for at least 90% of the trip;
 otherwise it is "n/a", never zero. Outside 95-105% is flagged SUSPECT. Those thresholds are guesses until
 real drives. Logged as one serial line (`# trip end: obd .. m gps .. m cover ..% ratio ..% ok|SUSPECT`, no
-coordinates) and kept in RAM as channel 17 until the next trip ends; it is lost on reboot. A persistent
-per-trip log waits on #52.
+coordinates) and kept as channel 17 until the next trip ends. The latest result is written to NVS (`roadnode_cfg`,
+key `trip_cmp`, one small string per trip) and restored at boot, so it survives a reboot; each trip replaces it.
+A history of trips waits on #52.
 
 Verified by host tests only (synthetic fixes). Not verified on hardware: a real fix and NMEA parsing,
 RTC set from GPS time, pins, how stock clients display channels 14-16.
