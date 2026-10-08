@@ -1,7 +1,5 @@
 #include "can_manager.h"
 
-#ifndef CAN_BACKEND_MCP2515
-
 #include <string.h>
 
 #include "driver/twai.h"
@@ -174,7 +172,15 @@ bool busOff() {
 
 int lastError() { return (int)s_last_err; }
 
+const char* resultName(Result r) {
+  switch (r) {
+    case Result::Ok: return "ok";
+    case Result::InvalidBitrate: return "invalid bitrate";
+    case Result::InvalidState: return "invalid state";
+    case Result::Timeout: return "timeout";
+    default: return "driver error";
+  }
+}
+
 }  // namespace can
 }  // namespace roadnode
-
-#endif  // !CAN_BACKEND_MCP2515

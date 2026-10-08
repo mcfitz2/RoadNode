@@ -60,7 +60,7 @@ bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
   cfg.mode = transmit ? can::Mode::Normal : can::Mode::ListenOnly;
   can::Result r = can::begin(cfg);
   s_can_ok = (r == can::Result::Ok);
-  if (!s_can_ok) Serial.printf("# CAN begin failed: %s (err %d)\n", can::resultName(r), can::lastError());
+  if (!s_can_ok) Serial.printf("# CAN begin failed: %s (esp_err %d)\n", can::resultName(r), can::lastError());
   s_obd.enableTransmit(transmit && s_can_ok);
   Serial.println(transmit ? "# OBD transmit ENABLED" : "# OBD transmit disabled (listen-only)");
 

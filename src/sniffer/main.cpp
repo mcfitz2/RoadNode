@@ -100,7 +100,7 @@ void setup() {
   cfg.bitrate_bps = CAN_BITRATE;
   can::Result r = can::begin(cfg);
   if (r != can::Result::Ok) {
-    Serial.printf("can::begin failed: %s (err 0x%x)\n", can::resultName(r), can::lastError());
+    Serial.printf("can::begin failed: %s (esp_err 0x%x)\n", can::resultName(r), can::lastError());
     return;
   }
   Serial.println("# loopback self-test");
@@ -120,7 +120,7 @@ void setup() {
   cfg.bitrate_bps = CAN_BITRATE;
   can::Result r = can::begin(cfg);
   if (r != can::Result::Ok) {
-    Serial.printf("can::begin failed: %s (err 0x%x)\n", can::resultName(r), can::lastError());
+    Serial.printf("can::begin failed: %s (esp_err 0x%x)\n", can::resultName(r), can::lastError());
     return;
   }
   Serial.printf("# listen-only sniffer, %lu bps\n", (unsigned long)CAN_BITRATE);
