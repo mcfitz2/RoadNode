@@ -2,9 +2,12 @@
 
 #include <stdint.h>
 
+#include "can_types.h"
 #include "driver/gpio.h"
 
-// ESP32-S3 TWAI (CAN) controller wrapper. No MeshCore dependencies.
+// CAN controller wrapper. Backend is chosen at build time: the ESP32-S3 TWAI peripheral (default, needs an
+// external transceiver) or an MCP2515 over SPI (-D CAN_BACKEND_MCP2515, e.g. the Adafruit PiCowbell CAN Bus).
+// No MeshCore dependencies.
 namespace roadnode {
 namespace can {
 
@@ -14,56 +17,48 @@ namespace can {
 #ifndef CAN_RX_PIN
 #define CAN_RX_PIN 4
 #endif
-
-enum class Mode : uint8_t {
-  Loopback,    // no-ack self-test mode: frames sent with self-reception are received back
-  ListenOnly,  // receive only; never transmits or acknowledges
-  Normal,      // transmit and receive (needed for OBD requests)
-};
-
-enum class Result : uint8_t {
-  Ok,
-  InvalidBitrate,
-  InvalidState,  // begin() while running, or end() while stopped
-  DriverError,   // see lastError()
-  Timeout,       // no frame received / queue full within the timeout
-};
+// MCP2515 wiring on the Heltec V4 header. GPIO 8-14 belong to the LoRa radio and 34/38/39/42 to the GNSS
+// connector, so the controller gets its own SPI bus on otherwise unused pins.
+#ifndef CAN_SPI_SCK
+#define CAN_SPI_SCK 47
+#endif
+#ifndef CAN_SPI_MISO
+#define CAN_SPI_MISO 41
+#endif
+#ifndef CAN_SPI_MOSI
+#define CAN_SPI_MOSI 48
+#endif
+#ifndef CAN_SPI_CS
+#define CAN_SPI_CS 3
+#endif
+#ifndef CAN_SPI_INT
+#define CAN_SPI_INT 4
+#endif
+#ifndef CAN_MCP2515_OSC_HZ
+#define CAN_MCP2515_OSC_HZ 16000000  // PiCowbell CAN Bus crystal (Y1, 16 MHz)
+#endif
 
 struct Config {
+  // TWAI backend (ESP32 on-chip controller, external transceiver).
   gpio_num_t tx_pin = (gpio_num_t)CAN_TX_PIN;
   gpio_num_t rx_pin = (gpio_num_t)CAN_RX_PIN;
+  // MCP2515 backend (CAN_BACKEND_MCP2515): SPI controller with its own transceiver.
+  int spi_sck = CAN_SPI_SCK;
+  int spi_miso = CAN_SPI_MISO;
+  int spi_mosi = CAN_SPI_MOSI;
+  int spi_cs = CAN_SPI_CS;
+  int spi_int = CAN_SPI_INT;           // active-low interrupt; -1 = poll
+  uint32_t osc_hz = CAN_MCP2515_OSC_HZ;
   Mode mode = Mode::ListenOnly;
-  uint32_t bitrate_bps = 500000;  // 25k/50k/100k/125k/250k/500k/800k/1M
+  uint32_t bitrate_bps = 500000;  // TWAI: 25k..1M. MCP2515: 25k/50k/100k/125k/250k/500k
   uint32_t rx_queue_len = 64;
   uint32_t tx_queue_len = 8;
 };
 
-struct Frame {
-  uint32_t id = 0;
-  uint8_t dlc = 0;
-  bool extended = false;  // 29-bit identifier
-  bool rtr = false;
-  bool self = false;      // transmit: request self-reception (Loopback mode)
-  uint8_t data[8] = {0};
-};
-
-struct Status {
-  uint32_t rx_queued;
-  uint32_t tx_queued;
-  uint32_t tx_errors;      // TEC
-  uint32_t rx_errors;      // REC
-  uint32_t tx_failed;
-  uint32_t rx_missed;      // dropped: RX queue full
-  uint32_t rx_overrun;     // dropped: hardware FIFO overrun
-  uint32_t arb_lost;
-  uint32_t bus_errors;
-  const char* state;       // stopped / running / bus-off / recovering
-};
-
-// Installs and starts the TWAI driver with an accept-all filter.
+// Starts the controller with an accept-all filter.
 Result begin(const Config& cfg);
 
-// Stops and uninstalls the driver.
+// Stops the controller.
 Result end();
 
 bool running();
@@ -83,10 +78,9 @@ Result recover();
 // True while the controller is in the bus-off state.
 bool busOff();
 
-// Last esp_err_t returned by the driver when a call returned Result::DriverError.
+// Backend error code when a call returned Result::DriverError (TWAI: esp_err_t; MCP2515: 1 = chip not
+// answering on SPI, 2 = out of RTOS resources).
 int lastError();
-
-const char* resultName(Result r);
 
 }  // namespace can
 }  // namespace roadnode

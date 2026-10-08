@@ -8,24 +8,26 @@ Logic is MeshCore- and hardware-free and unit tested on the host against the rea
 ## Wiring
 
 ```
- Heltec V4.3 + SN65HVD230          Feather RP2040 CAN (simulator)
-   CANH  ------------------------  CAN H
-   CANL  ------------------------  CAN L
-   GND   ------------------------  GND (terminal block middle)
+ Heltec V4.3 + PiCowbell CAN Bus   Feather RP2040 CAN (simulator)
+   H  ---------------------------  CAN H
+   L  ---------------------------  CAN L
+   GND  -------------------------  GND (terminal block middle)
 ```
 
-- Bench bus needs exactly two 120 ohm terminators. The Feather has one on by default (`Term` jumper).
-  The SN65HVD230 board needs its own at the other end. **In the car the node must have none** (README).
-- The SN65HVD230 board has two SMD resistors marked 151 (150 ohm) and 103 (10 kohm). Whether 151 is a
-  fixed terminator is unverified: measure CANH-CANL unpowered when the board arrives. If it is, it must be
-  removed before the car.
+- Heltec to PiCowbell wiring is in the README (MCP2515 over SPI).
+- Bench bus needs exactly two 120 ohm terminators: the Feather's `Term` jumper and the PiCowbell's `Term`
+  jumper, both left closed. Expect about 60 ohm between H and L with everything unpowered.
+  **In the car the node must have none**: cut the PiCowbell `Term` jumper first (README).
+- Bring-up finding: the SN65HVD230 modules tried first (a bare TWAI transceiver) read about 129 ohm
+  CANH-CANL unpowered, so they carry a fixed terminator that would have to be removed for the car, and
+  the one that was wired in never drove or received. The MCP2515 backend replaced it.
 - Power the node from the bench supply or USB. Power the Feather from USB (also the serial console).
 
 ## Board facts (Adafruit guide and arduino-pico variant)
 
 SPI SCK 14, MOSI 15, MISO 8; CS 19, RESET 18, INT 22, STANDBY 16 (driven low or the transceiver never
-transmits). **MCP25625 crystal frequency is unconfirmed**; the firmware assumes 16 MHz
-(`ECUSIM_CAN_CLOCK_HZ`). If nothing is seen on the bus, check this first.
+transmits). The MCP25625 crystal is marked 16.00 (MHz), matching the firmware default
+(`ECUSIM_CAN_CLOCK_HZ`).
 
 ## Build
 

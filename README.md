@@ -19,22 +19,31 @@ pio test -d host                # host unit tests
 ## Hardware
 
 - **Board:** Heltec WiFi LoRa 32 **V4.3**, no OLED (KCT8103L PA, 2 MB PSRAM). Uses MeshCore's plain `heltec_v4` pin map, not `heltec_v4_r8`. Verify the "V4.3" silkscreen on arrival.
-- **CAN transceiver:** SN65HVD230 (3.3 V). No 120 ohm termination: we attach to an existing bus.
+- **CAN controller:** Adafruit PiCowbell CAN Bus (MCP2515 + TJA1051T/3, 16 MHz crystal) on its own SPI bus. Everything on it runs from 3.3 V (an on-board charge pump makes the transceiver's 5 V). It is the default backend in the Heltec envs (`CAN_BACKEND_MCP2515`). Dropping that flag falls back to the ESP32 TWAI peripheral on GPIO3/4 with an external 3.3 V transceiver such as the SN65HVD230.
+- **Termination:** none in the car. Cut the PiCowbell `Term` solder jumper (120 ohm) before connecting to the OBD port. On the bench the bus needs exactly two 120 ohm terminators.
 
-### CAN wiring
+### CAN wiring (MCP2515)
 
-| Function | Heltec V4 GPIO | SN65HVD230 | OBD-II pin |
+Pad names come from Adafruit's schematic and learn guide; check them against the silkscreen on your board. Each GPIO below is a Heltec header pin: find it by the printed label.
+
+| Function | Heltec V4 | PiCowbell pad | OBD-II pin |
 | --- | --- | --- | --- |
-| CAN TX | GPIO3 | TXD | |
-| CAN RX | GPIO4 | RXD | |
-| Ground | GND | GND | 4 or 5 |
-| Logic power | 3.3 V | VCC | |
-| CAN High | | CANH | 6 |
-| CAN Low | | CANL | 14 |
+| SPI clock | GPIO47 | `GP18` (SCK) | |
+| SPI data out | GPIO48 | `GP19` (MOSI) | |
+| SPI data in | GPIO41 | `GP16` (MISO) | |
+| Chip select | GPIO3 | `CS` | |
+| Interrupt | GPIO4 | `INT` | |
+| Controller reset | 3V3 | `RST` (hold high; the bell has no pull-up without a Pico) | |
+| Logic power | 3V3 (not `Ve`) | `3V` | |
+| Ground | GND | `G` | 4 or 5 |
+| CAN High | | `H` on the terminal block | 6 |
+| CAN Low | | `L` on the terminal block | 14 |
 
-Do not connect OBD pin 16 (+12 V) to anything yet. Power the board from USB-C or Li-ion.
+Leave `SLNT` open. Do not connect OBD pin 16 (+12 V) to anything yet. Power the board from USB-C or Li-ion.
 
-The env does not set MeshCore's `ENV_PIN_SDA/SCL`, which the stock `heltec_v4_sensor` env points at GPIO3/4. Keep it that way.
+GPIO8-14 are the LoRa radio, so the controller gets its own SPI bus. Pins are `CAN_SPI_SCK/MOSI/MISO/CS/INT` in `src/can/can_manager.h` and can be overridden with `-D` flags. The SPI-wired pins are unverified on hardware.
+
+The env does not set MeshCore's `ENV_PIN_SDA/SCL`, which the stock `heltec_v4_sensor` env points at GPIO3/4. Keep it that way: GPIO3/4 are the chip select and interrupt.
 
 ### Pins in use by the board (V4 / V4.3, per MeshCore's `heltec_v4` variant)
 
