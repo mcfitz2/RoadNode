@@ -1,9 +1,11 @@
 // Derived from MeshCore (MIT, see THIRD_PARTY_NOTICES.md).
 // RoadNode copy of vendor/MeshCore/examples/simple_sensor/main.cpp. Differences from
 // the vendor file are limited to the alert logic in MyMesh (engine start / parked
-// alerts carrying position). Re-diff against the vendor file on every MeshCore bump.
+// alerts carrying position, also posted to an optional private channel). Re-diff
+// against the vendor file on every MeshCore bump.
 #include "SensorMesh.h"
 #include "obd/dtc.h"
+#include "vehicle/alert_channel.h"
 #include "vehicle/alert_logic.h"
 #include "storage/nvs_kv_store.h"
 #include "vehicle/alert_settings.h"
@@ -24,7 +26,10 @@ public:
   {
   }
 
-  void loadVehicleSettings() { roadnode::vehicle::loadAlertSettings(settings_kv, vehicle_alerts); }
+  void loadVehicleSettings() {
+    roadnode::vehicle::loadAlertSettings(settings_kv, vehicle_alerts);
+    roadnode::vehicle::loadAlertChannel(settings_kv, alert_channel);
+  }
 
 protected:
   /* ========================== custom logic here ========================== */
@@ -32,6 +37,9 @@ protected:
   roadnode::storage::NvsKvStore settings_kv;
   Trigger vehicle_started, vehicle_parked, vehicle_periodic, vehicle_dtc;
   roadnode::vehicle::AlertLogic vehicle_alerts = roadnode::vehicle::AlertLogic(alertConfig());
+  roadnode::vehicle::AlertChannel alert_channel;
+  bool was_low_batt = false, was_critical_batt = false;
+  bool was_started = false, was_parked = false, was_periodic = false, was_dtc = false;
 
   static roadnode::vehicle::AlertConfig alertConfig() {
     roadnode::vehicle::AlertConfig cfg;
@@ -60,14 +68,42 @@ protected:
     if (s.dtc_total > 6 && used < n) snprintf(out + used, n - used, " +%u", (unsigned)(s.dtc_total - 6));
   }
 
+  // One group text per alert edge, flooded like a stock channel message ("<name>: <text>"),
+  // so every client holding the channel secret sees it. Not retried and not ACKed.
+  void postToChannel(const char* text) {
+    if (!alert_channel.enabled) return;
+    mesh::GroupChannel ch;
+    memset(ch.secret, 0, sizeof(ch.secret));
+    memcpy(ch.secret, alert_channel.secret, alert_channel.len);
+    mesh::Utils::sha256(ch.hash, sizeof(ch.hash), ch.secret, alert_channel.len);
+
+    NodePrefs* prefs = getNodePrefs();
+    uint8_t data[5 + sizeof(prefs->node_name) + 2 + 96];
+    uint32_t ts = getRTCClock()->getCurrentTimeUnique();
+    memcpy(data, &ts, 4);
+    data[4] = 0;  // TXT_TYPE_PLAIN
+    int len = snprintf((char*)&data[5], sizeof(data) - 5, "%s: %s", prefs->node_name, text);
+    if (len < 0) return;
+    if (len > (int)sizeof(data) - 6) len = sizeof(data) - 6;
+    auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, ch, data, 5 + len);
+    if (pkt) sendFlood(pkt, (uint32_t)0, prefs->path_hash_mode + 1);
+  }
+
+  // Direct alerts to opted-in ACL clients (stock), plus the channel post on the rising edge.
+  void notify(bool condition, bool& was, Trigger& t, AlertPriority pri, const char* text) {
+    if (condition && !was) postToChannel(text);
+    was = condition;
+    alertIf(condition, t, pri, text);
+  }
+
   TimeSeriesData  battery_data;
 
   void onSensorDataRead() override {
     float batt_voltage = getVoltage(TELEM_CHANNEL_SELF);
 
     battery_data.recordData(getRTCClock(), batt_voltage);   // record battery
-    alertIf(batt_voltage < 3.4f, critical_batt, HIGH_PRI_ALERT, "Battery is critical!");
-    alertIf(batt_voltage < 3.6f, low_batt, LOW_PRI_ALERT, "Battery is low");
+    notify(batt_voltage < 3.4f, was_critical_batt, critical_batt, HIGH_PRI_ALERT, "Battery is critical!");
+    notify(batt_voltage < 3.6f, was_low_batt, low_batt, LOW_PRI_ALERT, "Battery is low");
 
     // Trip-end timestamp: only once GPS has set the RTC (a stock RTC holds an arbitrary value).
 #if ENV_INCLUDE_GPS
@@ -78,16 +114,16 @@ protected:
     roadnode::vehicle::AlertConditions c = vehicle_alerts.update(snap, millis());
     char text[64];
     positionText(text, sizeof(text), "Vehicle started");
-    alertIf(c.started, vehicle_started, LOW_PRI_ALERT, text);
+    notify(c.started, was_started, vehicle_started, LOW_PRI_ALERT, text);
     positionText(text, sizeof(text), "Vehicle parked");
-    alertIf(c.parked, vehicle_parked, HIGH_PRI_ALERT, text);
+    notify(c.parked, was_parked, vehicle_parked, HIGH_PRI_ALERT, text);
     positionText(text, sizeof(text), "Vehicle moving");
-    alertIf(c.periodic, vehicle_periodic, LOW_PRI_ALERT, text);
+    notify(c.periodic, was_periodic, vehicle_periodic, LOW_PRI_ALERT, text);
 
     // New trouble code: list the current codes (first 6) so the message is self-contained.
     char dtc_text[96];
     dtcText(dtc_text, sizeof(dtc_text), snap);
-    alertIf(c.dtc_new, vehicle_dtc, HIGH_PRI_ALERT, dtc_text);
+    notify(c.dtc_new, was_dtc, vehicle_dtc, HIGH_PRI_ALERT, dtc_text);
   }
 
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {
@@ -101,6 +137,8 @@ protected:
       return true;   // handled
     }
     if (roadnode::vehicle::handleAlertCommand(settings_kv, vehicle_alerts, command, reply))
+      return true;
+    if (roadnode::vehicle::handleAlertChannelCommand(settings_kv, alert_channel, command, reply))
       return true;
     if (roadnode::vehicle::handleOdometerCommand(roadnode::vehicle::VehicleRuntime::odometer(), command, reply))
       return true;

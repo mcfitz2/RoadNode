@@ -111,6 +111,26 @@ Each fires once per false->true edge; it is not a position stream. Logic:
 `src/vehicle/alert_logic.h`; wiring: `src/node/main.cpp` (copy of the vendor
 `simple_sensor/main.cpp`, re-diff on MeshCore bumps). Delivery is not durable: with no path it floods and gives up after retries.
 
+### Private channel
+
+Stock MeshCore apps show sensor nodes without a chat view, so the direct alerts above
+are delivered and ACKed but not displayed. The node can also post each alert (same text,
+same edges, battery alerts included) to a private group channel as `<node name>: <text>`,
+which every client holding the channel secret displays.
+
+Create a private channel in the app, copy its secret (32 or 64 hex chars), then on the
+node's admin CLI (serial or remote):
+
+| Command | Effect |
+|---------|--------|
+| `alert channel <hex secret>` | enable, persisted across reboots |
+| `alert channel` | show on/off and key size; never echoes the secret |
+| `alert channel off` | disable and erase the stored secret |
+
+Channel posts are one flood each, not ACKed or retried. Anyone with the secret can read
+them, including the position in the started/parked/moving texts; share the channel only
+with people allowed to see where the vehicle is. Never commit the secret or paste it in an issue.
+
 ## Verification status
 
 - Encode/decode round trips and size are unit tested on the host against a model of the
