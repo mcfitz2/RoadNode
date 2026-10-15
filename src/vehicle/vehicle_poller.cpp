@@ -46,71 +46,7 @@ bool VehiclePoller::pollValue(uint8_t pid, float& v, uint32_t now_ms) {
   return st == Status::Ok;
 }
 
-// Reads stored, pending and permanent DTCs (read-only) and merges them into the
-// snapshot. Stored (03) must succeed for the result to count; 07/0A are optional
-// and a silent or unsupporting ECU just skips them. Silence on these modes does
-// not count against the OBD connection: many ECUs never answer 0A.
-void VehiclePoller::pollDtcs() {
-  static const obd::DtcMode modes[3] = {obd::DtcMode::Stored, obd::DtcMode::Pending, obd::DtcMode::Permanent};
-  static const uint8_t kinds[3] = {DTC_STORED, DTC_PENDING, DTC_PERMANENT};
-
-  VehicleSnapshot next = _s;
-  next.dtc_count = 0;
-  next.dtc_total = 0;
-  bool stored_ok = false;
-  for (int m = 0; m < 3; m++) {
-    if (_dtc_mode_unsupported[m]) continue;
-    obd::DtcList list;
-    Status st = _obd.readDtcs(modes[m], list);
-    if (st == Status::Unsupported) {
-      _dtc_mode_unsupported[m] = true;
-      continue;
-    }
-    if (st == Status::Ok || st == Status::NegativeResponse || st == Status::BusError) account(st);
-    if (st != Status::Ok) continue;
-    if (m == 0) stored_ok = true;
-    next.dtc_total += (uint16_t)list.count;
-    for (size_t i = 0; i < list.count && next.dtc_count < VehicleSnapshot::MAX_DTCS; i++) {
-      next.dtc_raw[next.dtc_count] = list.codes[i].raw;
-      next.dtc_kind[next.dtc_count] = kinds[m];
-      next.dtc_count++;
-    }
-  }
-  _stats.dtc_reads++;
-  if (!stored_ok) return;  // keep the previous result rather than report a partial one
-  _s.has_dtcs = true;
-  _s.dtc_total = next.dtc_total;
-  _s.dtc_count = next.dtc_count;
-  memcpy(_s.dtc_raw, next.dtc_raw, sizeof(_s.dtc_raw));
-  memcpy(_s.dtc_kind, next.dtc_kind, sizeof(_s.dtc_kind));
-}
-
-// Coolant, load, intake temperature and fuel level change slowly. One request per
-// slow_pid_interval_ms, round-robin, so speed sampling stays at its normal spacing.
-void VehiclePoller::pollSlowPid(uint32_t now_ms) {
-  if (!_cfg.slow_pid_interval_ms) return;
-  if (!_slow_clock_set) {
-    _slow_clock_set = true;
-    _slow_last_ms = now_ms;
-    return;
-  }
-  if (now_ms - _slow_last_ms < _cfg.slow_pid_interval_ms) return;
-  _slow_last_ms = now_ms;
-  static const uint8_t pids[4] = {obd::PID_COOLANT_TEMP, obd::PID_ENGINE_LOAD, obd::PID_INTAKE_TEMP, obd::PID_FUEL_LEVEL};
-  uint8_t i = _slow_idx;
-  _slow_idx = (uint8_t)((_slow_idx + 1) % 4);
-  float v;
-  if (!pollValue(pids[i], v, now_ms)) return;
-  _slow_ms[i] = now_ms;
-  switch (i) {
-    case 0: _s.coolant_c = v; break;
-    case 1: _s.load_pct = v; break;
-    case 2: _s.intake_c = v; break;
-    default: _s.fuel_pct = v; break;
-  }
-}
-
-// One VIN read per boot, deferred like DTCs while moving. The result only goes to
+// One VIN read per boot, deferred while moving. The result only goes to
 // VehicleIdentity (local storage); it never reaches the snapshot or telemetry.
 void VehiclePoller::pollVin(uint32_t now_ms) {
   _vin_last_ms = now_ms;
@@ -205,25 +141,7 @@ void VehiclePoller::step(uint32_t now_ms) {
     }
   }
 
-  pollSlowPid(now_ms);
-
-  // DTCs change rarely: poll at a slow rate, only while the ECU is answering.
-  // Deferred while moving so the speed samples keep their 1 Hz spacing; an unreadable
-  // speed does not defer (distance is not integrating then anyway).
-  bool moving = got_speed && speed >= _cfg.dtc_max_speed_kmh;
-  if (!_dtc_clock_set) {  // deferral is measured from the first poll until the first read
-    _dtc_clock_set = true;
-    _dtc_last_ms = now_ms;
-  }
-  uint32_t since_dtc = now_ms - _dtc_last_ms;
-  bool dtc_due = !_dtc_tried || since_dtc >= _cfg.dtc_poll_interval_ms;  // first read as soon as allowed
-  bool dtc_forced = _cfg.dtc_max_defer_ms && since_dtc >= _cfg.dtc_max_defer_ms;
-  if (_cfg.dtc_poll_interval_ms && (got_speed || _s.obd_connected) && dtc_due && (!moving || dtc_forced)) {
-    _dtc_tried = true;
-    _dtc_last_ms = now_ms;
-    pollDtcs();
-  }
-
+  bool moving = got_speed && speed >= _cfg.vin_max_speed_kmh;
   if (_identity && !_vin_done && _vin_attempts < _cfg.vin_max_attempts && _obd.transmitEnabled() &&
       (_discovered || _obd.anyFrameSeen()) && !moving &&
       (_vin_attempts == 0 || now_ms - _vin_last_ms >= _cfg.vin_retry_ms))
@@ -238,11 +156,6 @@ void VehiclePoller::step(uint32_t now_ms) {
   _s.has_speed = fresh(_speed_ms);
   _s.has_rpm = fresh(_rpm_ms);
   _s.has_battery = fresh(_batt_ms);
-  auto fresh_slow = [&](uint32_t t) { return t != 0 && (uint32_t)age(t) <= _cfg.slow_stale_ms; };
-  _s.has_coolant = fresh_slow(_slow_ms[0]);
-  _s.has_load = fresh_slow(_slow_ms[1]);
-  _s.has_intake = fresh_slow(_slow_ms[2]);
-  _s.has_fuel = fresh_slow(_slow_ms[3]);
 
   if (_obd.anyFrameSeen()) {
     _s.ever_can_activity = true;

@@ -4,7 +4,6 @@
 // alerts carrying position, also posted to an optional private channel). Re-diff
 // against the vendor file on every MeshCore bump.
 #include "SensorMesh.h"
-#include "obd/dtc.h"
 #include "vehicle/alert_channel.h"
 #include "vehicle/alert_logic.h"
 #include "storage/nvs_kv_store.h"
@@ -35,11 +34,11 @@ protected:
   /* ========================== custom logic here ========================== */
   Trigger low_batt, critical_batt;
   roadnode::storage::NvsKvStore settings_kv;
-  Trigger vehicle_started, vehicle_parked, vehicle_periodic, vehicle_dtc;
+  Trigger vehicle_started, vehicle_parked, vehicle_periodic;
   roadnode::vehicle::AlertLogic vehicle_alerts = roadnode::vehicle::AlertLogic(alertConfig());
   roadnode::vehicle::AlertChannel alert_channel;
   bool was_low_batt = false, was_critical_batt = false;
-  bool was_started = false, was_parked = false, was_periodic = false, was_dtc = false;
+  bool was_started = false, was_parked = false, was_periodic = false;
 
   static roadnode::vehicle::AlertConfig alertConfig() {
     roadnode::vehicle::AlertConfig cfg;
@@ -57,15 +56,6 @@ protected:
     } else {
       snprintf(out, n, "%s at %.5f,%.5f", what, sensors.node_lat, sensors.node_lon);
     }
-  }
-  void dtcText(char* out, size_t n, const roadnode::vehicle::VehicleSnapshot& s) {
-    size_t used = snprintf(out, n, "Vehicle DTC:");
-    char code[6];
-    for (uint8_t i = 0; i < s.dtc_count && i < 6 && used < n; i++) {
-      roadnode::obd::formatDtc((uint8_t)(s.dtc_raw[i] >> 8), (uint8_t)s.dtc_raw[i], code);
-      used += snprintf(out + used, n - used, " %s", code);
-    }
-    if (s.dtc_total > 6 && used < n) snprintf(out + used, n - used, " +%u", (unsigned)(s.dtc_total - 6));
   }
 
   // One group text per alert edge, flooded like a stock channel message ("<name>: <text>"),
@@ -119,11 +109,6 @@ protected:
     notify(c.parked, was_parked, vehicle_parked, HIGH_PRI_ALERT, text);
     positionText(text, sizeof(text), "Vehicle moving");
     notify(c.periodic, was_periodic, vehicle_periodic, LOW_PRI_ALERT, text);
-
-    // New trouble code: list the current codes (first 6) so the message is self-contained.
-    char dtc_text[96];
-    dtcText(dtc_text, sizeof(dtc_text), snap);
-    notify(c.dtc_new, was_dtc, vehicle_dtc, HIGH_PRI_ALERT, dtc_text);
   }
 
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {

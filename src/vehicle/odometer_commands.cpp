@@ -89,15 +89,14 @@ static void fmtPercent(char* out, size_t n, uint32_t bp) {
 
 bool handleOdometerCommand(OdometerControl& odo, const char* command, char* reply) {
   if (strcmp(command, "odo") == 0) {
-    uint64_t total, gps;
-    if (!odo.read(total, gps)) {
+    uint64_t total;
+    if (!odo.read(total)) {
       strcpy(reply, "Err: busy, retry");
       return true;
     }
-    char a[16], b[16];
+    char a[16];
     fmtTenths(a, sizeof(a), mmToMilesTenths(total));
-    fmtTenths(b, sizeof(b), mmToMilesTenths(gps));
-    sprintf(reply, "odo %s mi (gps filled %s mi since boot)", a, b);
+    sprintf(reply, "odo %s mi", a);
     return true;
   }
   if (strcmp(command, "odo trip") == 0) {
@@ -157,8 +156,8 @@ bool handleOdometerCommand(OdometerControl& odo, const char* command, char* repl
       strcpy(reply, "Err: miles 0-1000000, one decimal");
       return true;
     }
-    uint64_t before, gps;
-    if (!odo.read(before, gps)) {
+    uint64_t before;
+    if (!odo.read(before)) {
       strcpy(reply, "Err: busy, retry");
       return true;
     }

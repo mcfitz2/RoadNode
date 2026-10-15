@@ -170,18 +170,6 @@ void test_unplugged_bus_adds_nothing_and_loses_nothing() {
   TEST_ASSERT_TRUE(n.tracker.totalMm() > during);    // counting again once the ECU answers
 }
 
-void test_dtc_reads_while_stopped_do_not_cost_distance() {
-  SimBus bus;
-  FakeStore store;
-  Node n(bus, store);
-  bus.ecu.scenario().stored.raw[0] = 0x0133;
-  bus.ecu.scenario().stored.count = 1;
-  startDriving(bus);
-  n.runUntil(bus.now + 10 * EcuSim::CYCLE_MS);
-  TEST_ASSERT_TRUE(n.poller.stats().dtc_reads > 0);
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 0.0f, (float)errorPct(n, bus));
-}
-
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_odometer_tracks_simulated_distance_over_many_cycles);
@@ -189,6 +177,5 @@ int main() {
   RUN_TEST(test_clean_shutdown_and_reboot_keep_exact_value);
   RUN_TEST(test_power_cut_loses_at_most_one_checkpoint_interval);
   RUN_TEST(test_unplugged_bus_adds_nothing_and_loses_nothing);
-  RUN_TEST(test_dtc_reads_while_stopped_do_not_cost_distance);
   return UNITY_END();
 }

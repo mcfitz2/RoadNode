@@ -18,17 +18,12 @@ struct PollerConfig {
   uint32_t obd_lost_after_fails = 3;        // consecutive failed polls before obd_connected clears
   uint32_t discovery_retry_ms = 5000;
   uint32_t bus_recovery_interval_ms = 1000;
-  uint32_t slow_pid_interval_ms = 2500;     // one slow PID per step this often, round-robin of 4
-  uint32_t slow_stale_ms = 30000;           // slow values older than this read as unknown
   uint32_t vin_retry_ms = 30000;            // between VIN read attempts
   uint32_t vin_max_attempts = 5;            // per boot; a negative response stops earlier
   uint32_t value_stale_ms = 3000;           // live values older than this read as unknown
-  uint32_t dtc_poll_interval_ms = 30000;    // modes 03/07/0A; 0 disables DTC polling
-  // DTC reads block the poll task for up to a few request timeouts, which would
-  // stretch the gap between speed samples. They wait until the vehicle is
-  // (nearly) stopped, unless this long has passed since the last read; 0 = never force.
-  float dtc_max_speed_kmh = 1.0f;
-  uint32_t dtc_max_defer_ms = 10u * 60u * 1000u;
+  // VIN reads block the poll task for up to a few request timeouts, which would
+  // stretch the gap between speed samples, so they wait until the vehicle is (nearly) stopped.
+  float vin_max_speed_kmh = 1.0f;
 };
 
 struct PollerStats {
@@ -38,7 +33,6 @@ struct PollerStats {
   uint32_t negative = 0;
   uint32_t bus_errors = 0;
   uint32_t unsupported_skips = 0;
-  uint32_t dtc_reads = 0;
   uint32_t vin_reads = 0;  // attempts
   uint32_t discoveries = 0;
   uint32_t bus_off_events = 0;
@@ -68,9 +62,7 @@ public:
 private:
   void account(obd::Status st);
   bool pollValue(uint8_t pid, float& v, uint32_t now_ms);
-  void pollDtcs();
   void pollVin(uint32_t now_ms);
-  void pollSlowPid(uint32_t now_ms);
   void copyVehicleId();
 
   obd::ObdManager& _obd;
@@ -88,19 +80,11 @@ private:
   bool _in_bus_off = false;
   uint32_t _last_recovery = 0;
   bool _recovery_started = false;
-  uint32_t _slow_ms[4] = {0, 0, 0, 0};
-  uint32_t _slow_last_ms = 0;
-  bool _slow_clock_set = false;
-  uint8_t _slow_idx = 0;
   uint32_t _speed_ms = 0, _rpm_ms = 0, _batt_ms = 0;
   VehicleIdentity* _identity = nullptr;
   bool _vin_done = false;
   uint32_t _vin_attempts = 0;
   uint32_t _vin_last_ms = 0;
-  bool _dtc_tried = false;
-  bool _dtc_clock_set = false;
-  uint32_t _dtc_last_ms = 0;
-  bool _dtc_mode_unsupported[3] = {false, false, false};  // 03, 07, 0A
 };
 
 }  // namespace vehicle

@@ -80,7 +80,7 @@ bool VehicleRuntime::begin(const char* vehicle_id, bool transmit) {
 const VehicleTelemetry& VehicleRuntime::telemetry() { return s_telemetry; }
 
 // Called from the MeshCore task before a reboot or power off. Waits for a poll step in progress
-// (a DTC read can block for a few request timeouts); if it does not finish in time, skips the
+// (a VIN read can block for a few request timeouts); if it does not finish in time, skips the
 // save rather than write the tracker from two tasks.
 bool VehicleRuntime::shutdown() {
   if (!s_started || !s_lock) return false;
@@ -95,21 +95,12 @@ void VehicleRuntime::setTime(uint32_t unix_seconds) {
   if (s_started) s_tracker.setTime(unix_seconds);
 }
 
-bool VehicleRuntime::addGpsDistance(uint64_t mm, uint32_t interval_start_ms) {
-  if (!s_started || !s_lock) return false;
-  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(20)) != pdTRUE) return false;
-  s_tracker.addGpsDistance(millis(), mm, interval_start_ms);  // ignored (consumed) if OBD was valid in the interval
-  xSemaphoreGive(s_lock);
-  return true;
-}
-
 namespace {
 class RuntimeOdometer : public OdometerControl {
 public:
-  bool read(uint64_t& total_mm, uint64_t& gps_mm) override {
+  bool read(uint64_t& total_mm) override {
     if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
     total_mm = s_tracker.totalMm();
-    gps_mm = s_tracker.gpsFilledMm();
     xSemaphoreGive(s_lock);
     return true;
   }

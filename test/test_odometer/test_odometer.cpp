@@ -17,10 +17,9 @@ class TrackerOdo : public OdometerControl {
 public:
   explicit TrackerOdo(MileageTracker& m) : _m(m) {}
   bool busy = false;
-  bool read(uint64_t& total, uint64_t& gps) override {
+  bool read(uint64_t& total) override {
     if (busy) return false;
     total = _m.totalMm();
-    gps = _m.gpsFilledMm();
     return true;
   }
   bool setTotalMm(uint64_t mm) override { return !busy && _m.setTotalMm(1000, mm); }
@@ -65,7 +64,7 @@ void test_show_and_set() {
   m.begin(0);
   TrackerOdo odo(m);
   char r[160];
-  TEST_ASSERT_EQUAL_STRING("odo 0.0 mi (gps filled 0.0 mi since boot)", run(odo, "odo", r));
+  TEST_ASSERT_EQUAL_STRING("odo 0.0 mi", run(odo, "odo", r));
   TEST_ASSERT_EQUAL_STRING("OK odo 187432.5 mi (was 0.0, +187432.5)", run(odo, "odo set 187432.5", r));
   TEST_ASSERT_EQUAL_UINT32(1874325, mmToMilesTenths(m.totalMm()));
   TEST_ASSERT_EQUAL_STRING("OK odo 187400.0 mi (was 187432.5, -32.5)", run(odo, "odo set 187400", r));
@@ -169,7 +168,7 @@ static void drive(MileageTracker& m, uint32_t& t, int secs, uint8_t kmh) {
 }
 
 // "odo trip" is the device readout for last_trip_timestamp: without it a car test cannot tell
-// whether GPS time actually reached the stored record (car-test check 10).
+// whether GPS time actually reached the stored record (car-test check 7).
 void test_trip_timestamp_command() {
   FakeStore s;
   char r[160];
@@ -272,7 +271,7 @@ void test_scale_persists_and_loads() {
   TEST_ASSERT_FALSE(loadOdoScale(kv, bp));
 }
 
-void test_scale_multiplies_obd_and_gps_distance() {
+void test_scale_multiplies_obd_distance() {
   FakeStore s1, s2;
   MileageTracker a(s1), b(s2);
   TEST_ASSERT_TRUE(b.setScaleBp(10250));
@@ -282,12 +281,6 @@ void test_scale_multiplies_obd_and_gps_distance() {
   double ratio = (double)b.totalMm() / (double)a.totalMm();
   TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.025f, (float)ratio);
   TEST_ASSERT_EQUAL_UINT64(b.totalMm(), b.tripMm());  // trip follows the same factor
-  FakeStore s3;
-  MileageTracker g(s3);
-  g.setScaleBp(10250);
-  TEST_ASSERT_TRUE(g.addGpsDistance(1000, 100000, 0));
-  TEST_ASSERT_EQUAL_UINT64(102500, g.totalMm());
-  TEST_ASSERT_EQUAL_UINT64(102500, g.gpsFilledMm());
 }
 
 void test_scale_out_of_range_rejected_by_mileage() {
@@ -313,7 +306,7 @@ int main() {
   RUN_TEST(test_scale_command_show_set_and_reject);
   RUN_TEST(test_scale_save_failure_keeps_old_factor);
   RUN_TEST(test_scale_persists_and_loads);
-  RUN_TEST(test_scale_multiplies_obd_and_gps_distance);
+  RUN_TEST(test_scale_multiplies_obd_distance);
   RUN_TEST(test_scale_out_of_range_rejected_by_mileage);
   return UNITY_END();
 }
