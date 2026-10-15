@@ -128,6 +128,12 @@ public:
     xSemaphoreGive(s_lock);
     return true;
   }
+  bool lastTripTimestamp(uint32_t& unix_seconds) override {
+    if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+    unix_seconds = s_tracker.lastTripTimestamp();
+    xSemaphoreGive(s_lock);
+    return true;
+  }
   // Applied and saved together: if the write fails the old factor stays in force.
   bool setScaleBp(uint32_t bp) override {
     if (!s_started || !s_lock || xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
@@ -147,6 +153,8 @@ OdometerControl& VehicleRuntime::odometer() { return s_odometer; }
 VehicleIdentity& VehicleRuntime::identity() { return s_identity; }
 
 bool VehicleRuntime::canStarted() { return s_can_ok; }
+
+const obd::CapabilityTable& VehicleRuntime::capabilities() { return s_obd.capabilities(); }
 
 }  // namespace vehicle
 }  // namespace roadnode

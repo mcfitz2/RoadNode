@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 namespace roadnode {
 namespace vehicle {
@@ -97,6 +98,26 @@ bool handleOdometerCommand(OdometerControl& odo, const char* command, char* repl
     fmtTenths(a, sizeof(a), mmToMilesTenths(total));
     fmtTenths(b, sizeof(b), mmToMilesTenths(gps));
     sprintf(reply, "odo %s mi (gps filled %s mi since boot)", a, b);
+    return true;
+  }
+  if (strcmp(command, "odo trip") == 0) {
+    uint32_t ts;
+    if (!odo.lastTripTimestamp(ts)) {
+      strcpy(reply, "Err: busy, retry");
+      return true;
+    }
+    if (ts == 0) {
+      strcpy(reply, "odo trip none (no trip ended yet, or clock unset when it did)");
+      return true;
+    }
+    time_t t = (time_t)ts;
+    struct tm utc;
+    if (!gmtime_r(&t, &utc)) {  // unreachable for a 32-bit unix time; never print an uninitialised tm
+      sprintf(reply, "odo trip ended unix %lu", (unsigned long)ts);
+      return true;
+    }
+    sprintf(reply, "odo trip ended %04d-%02d-%02d %02d:%02d:%02dZ (unix %lu)", utc.tm_year + 1900, utc.tm_mon + 1,
+            utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec, (unsigned long)ts);
     return true;
   }
   if (strcmp(command, "odo scale") == 0) {

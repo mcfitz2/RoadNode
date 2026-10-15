@@ -24,6 +24,9 @@ public:
   // (old value kept).
   virtual bool scaleBp(uint32_t& bp) = 0;
   virtual bool setScaleBp(uint32_t bp) = 0;
+  // Unix time stamped on the last trip end; 0 if no trip has ended yet or the clock was unset
+  // when one did. False if the value could not be read (vehicle task busy).
+  virtual bool lastTripTimestamp(uint32_t& unix_seconds) = 0;
 };
 
 // Persistence of the calibration (KV key "odo_scale"). Load returns false and leaves bp alone when
@@ -34,8 +37,9 @@ bool saveOdoScale(storage::KvStore& kv, uint32_t bp);
 // Percent with up to two decimals, 80 to 120, as basis points. Exposed for tests.
 bool parsePercentBp(const char* s, uint32_t& bp);
 
-// "odo" (show), "odo set <miles>" (miles with at most one decimal, 0 to 1,000,000) and
-// "odo scale [<percent>]" (show / set the calibration, 80 to 120 with up to two decimals).
+// "odo" (show), "odo set <miles>" (miles with at most one decimal, 0 to 1,000,000),
+// "odo scale [<percent>]" (show / set the calibration, 80 to 120 with up to two decimals) and
+// "odo trip" (show the last trip-end time as UTC, for checking that GPS time reached the record).
 // Returns true if the command was recognised; reply gets a short text.
 bool handleOdometerCommand(OdometerControl& odo, const char* command, char* reply);
 

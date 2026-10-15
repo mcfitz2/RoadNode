@@ -2,6 +2,7 @@
 
 #ifdef ARDUINO
 
+#include "obd/obd_pids.h"
 #include "odometer_commands.h"
 #include "vehicle_identity.h"
 #include "vehicle_state.h"
@@ -40,6 +41,11 @@ public:
 
   // Reported by begin(): false if the CAN driver failed to start.
   static bool canStarted();
+
+  // Mode 01 PIDs the vehicle declared supported, as discovered by the poller. Empty until
+  // discovery succeeds. Diagnostic only: lets a car test see what a vehicle actually offers
+  // instead of inferring it from which values stay unread.
+  static const obd::CapabilityTable& capabilities();
   static VehicleIdentity& identity();
 };
 

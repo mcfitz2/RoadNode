@@ -30,6 +30,10 @@ public:
   // Optional unix time source for last_trip_timestamp (0 = unknown).
   void setTime(uint32_t unix_seconds) { _unix_time = unix_seconds; }
 
+  // Unix time stamped on the last trip end, restored from storage on begin().
+  // 0 when no trip has ended yet, or the clock was unset when one did.
+  uint32_t lastTripTimestamp() const { return _last_trip_ts; }
+
   // Call at every sample (about 1 Hz).
   //  in            ignition / engine / speed as currently known
   //  speed_valid   false if the speed reading is stale or the OBD link is down.

@@ -37,6 +37,11 @@ public:
     _m.setScaleBp(old);
     return false;
   }
+  bool lastTripTimestamp(uint32_t& unix_seconds) override {
+    if (busy) return false;
+    unix_seconds = _m.lastTripTimestamp();
+    return true;
+  }
 
 private:
   MileageTracker& _m;
@@ -163,6 +168,53 @@ static void drive(MileageTracker& m, uint32_t& t, int secs, uint8_t kmh) {
   }
 }
 
+// "odo trip" is the device readout for last_trip_timestamp: without it a car test cannot tell
+// whether GPS time actually reached the stored record (car-test check 10).
+void test_trip_timestamp_command() {
+  FakeStore s;
+  char r[160];
+  {
+    MileageTracker m(s, TripConfig{5000});
+    m.begin(0);
+    TrackerOdo odo(m);
+    TEST_ASSERT_EQUAL_STRING("odo trip none (no trip ended yet, or clock unset when it did)", run(odo, "odo trip", r));
+
+    uint32_t t = 0;
+    m.setTime(1700000123);
+    drive(m, t, 30, 36);
+    for (int i = 0; i < 6; i++) {  // park until the trip ends
+      t += 1000;
+      m.update(t, {false, false, 0}, true);
+    }
+    TEST_ASSERT_FALSE(m.tripActive());
+    TEST_ASSERT_EQUAL_STRING("odo trip ended 2023-11-14 22:15:23Z (unix 1700000123)", run(odo, "odo trip", r));
+
+    odo.busy = true;
+    TEST_ASSERT_TRUE(strncmp(run(odo, "odo trip", r), "Err: busy", 9) == 0);
+  }
+  MileageTracker again(s);  // reboot: the stamp comes back from storage
+  TEST_ASSERT_TRUE(again.begin(0));
+  TrackerOdo odo2(again);
+  TEST_ASSERT_EQUAL_STRING("odo trip ended 2023-11-14 22:15:23Z (unix 1700000123)", run(odo2, "odo trip", r));
+}
+
+// A trip that ends while the clock is unset must not report a bogus epoch time.
+void test_trip_timestamp_absent_without_clock() {
+  FakeStore s;
+  MileageTracker m(s, TripConfig{5000});
+  m.begin(0);
+  TrackerOdo odo(m);
+  char r[160];
+  uint32_t t = 0;
+  drive(m, t, 30, 36);  // no setTime() call
+  for (int i = 0; i < 6; i++) {
+    t += 1000;
+    m.update(t, {false, false, 0}, true);
+  }
+  TEST_ASSERT_FALSE(m.tripActive());
+  TEST_ASSERT_EQUAL_STRING("odo trip none (no trip ended yet, or clock unset when it did)", run(odo, "odo trip", r));
+}
+
 void test_parse_percent() {
   uint32_t bp = 0;
   TEST_ASSERT_TRUE(parsePercentBp("100", bp));
@@ -255,6 +307,8 @@ int main() {
   RUN_TEST(test_save_failure_reverts_and_reports);
   RUN_TEST(test_busy_reports_and_changes_nothing);
   RUN_TEST(test_set_leaves_trip_untouched_and_driving_continues);
+  RUN_TEST(test_trip_timestamp_command);
+  RUN_TEST(test_trip_timestamp_absent_without_clock);
   RUN_TEST(test_parse_percent);
   RUN_TEST(test_scale_command_show_set_and_reject);
   RUN_TEST(test_scale_save_failure_keeps_old_factor);
