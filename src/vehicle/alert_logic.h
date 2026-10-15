@@ -41,19 +41,32 @@ public:
 
   AlertConditions update(const VehicleSnapshot& s, uint32_t now_ms) {
     AlertConditions c;
-    if (s.engine_running) _driven = true;
-    c.started = s.engine_running;
-    // Not parked at boot: needs an engine-running observation first. The poller
-    // debounces vehicle_active with its CAN-silence timeout.
-    c.parked = _driven && !s.engine_running && !s.vehicle_active;
+    // On a hybrid the engine stops and restarts throughout a normal drive, so engine_running
+    // alone is not "the vehicle is operating": keying `started` to it re-fires the alert on
+    // every restart, and the periodic countdown below restarts with it and may never elapse.
+    // Trip state already debounces exactly this (trip.h: active and engine-or-moving, with an
+    // end timeout), so a trip in progress holds `operating` true across the gaps.
+    const bool operating = s.trip_active || s.engine_running;
+    if (operating) _driven = true;
+    c.started = operating;
+    // Not parked at boot: needs an operating observation first.
+    //
+    // Keyed to obd_connected, not vehicle_active. vehicle_active means "a frame arrived", and
+    // the poller never stops polling, so a gateway that answers our requests with negative
+    // responses after shutdown keeps it true forever and parking is never reported (measured on
+    // a 2025 Maverick: fully powered off, vehicle_active stuck true, no valid PID at all).
+    // obd_connected means the ECU is actually serving data, which is what a shutdown ends.
+    // !trip_active guards the other direction: a transient CAN failure mid-drive drops
+    // obd_connected for a few polls, and the trip stays active across that.
+    c.parked = _driven && !s.engine_running && !s.trip_active && !s.obd_connected;
 
     c.dtc_new = updateDtc(s, now_ms);
 
-    if (!s.engine_running) {
+    if (!operating) {
       _running = false;
       _pulse = false;
     } else {
-      if (!_running) {  // engine just started: first report one interval from now
+      if (!_running) {  // just started operating: first report one interval from now
         _running = true;
         _last_ms = now_ms;
         _pulse = false;
