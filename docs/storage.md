@@ -68,19 +68,13 @@ Unverified on hardware: NVS persistence across power cycles, real ECU VIN reads.
 Verified: the tracker's use of the timestamp (host tests). Not verified: the board overrides running on the ESP32,
 and the GPS-set RTC (no fix on the bench).
 
-## Keeping the device odometer right: GPS gap fill and resync
+## Keeping the device odometer right: resync
 
 The device odometer is the primary product: maintenance is tracked elsewhere and reads this value, so the node
 only has to report it accurately. The car's own odometer cannot be read over OBD, so the device value starts
-wherever you set it and drifts from the dash.
+wherever you set it and drifts from the dash. OBD speed is the only source of distance: while it is unavailable
+(CAN dropout, OBD link down) nothing is added.
 
-- **GPS gap fill.** OBD speed is the source of distance. While it is unavailable (CAN dropout, OBD link down),
-  distance from GPS (`GpsTrack`, lifetime total) is added instead. Each second the sensor manager offers the new GPS
-  distance and the interval it covers (`VehicleRuntime::addGpsDistance`); `MileageTracker::addGpsDistance` takes it
-  only if no OBD speed sample landed in that interval, so the two sources never count the same metres. If the poll
-  task holds the lock the offer is retried with the same distance (nothing is lost). The fill also lands in the
-  trip distance while a trip is active. GPS chords cut curves and no-fix gaps are not integrated, so filled
-  distance is a lower bound; it is still better than losing the stretch. `odo` shows how much GPS has added since boot.
 - **Resync.** Admin commands (serial, or remote admin over the mesh with the admin password): `odo` shows the value in
   miles; `odo set <miles>` replaces it (0 to 1,000,000, one decimal), writes the A/B slot immediately and replies
   with the old value and the correction, e.g. `OK odo 187432.5 mi (was 187401.1, +31.4)`. If the write fails the old
@@ -88,10 +82,9 @@ wherever you set it and drifts from the dash.
   millimetres. Anyone holding the admin password can change the odometer, so set a real password per unit (#51).
 - **Calibration.** `odo scale` shows the distance factor, `odo scale <percent>` sets it (80 to 120, up to two decimals,
   e.g. `odo scale 102.5`; reply `OK odo scale 102.50% (was 100.00%)`). It multiplies every distance added from then
-  on, OBD and GPS fill alike, so the device value tracks the dash when speed or tyre size make them differ. Stored in
+  on, so the device value tracks the dash when speed or tyre size make them differ. Stored in
   NVS (`roadnode_cfg`, key `odo_scale`, basis points, 10000 = 100%); a failed write keeps the old factor. It does not
-  change the value already stored (use `odo set`). Trip distance and the #43 OBD/GPS comparison use the scaled value,
-  so the ratio on channel 17 is against the calibrated OBD distance. To pick a factor: drive a known stretch, compare
+  change the value already stored (use `odo set`). Trip distance uses the scaled value too. To pick a factor: drive a known stretch, compare
   the dash delta to the `odo` delta, and set the old factor times dash over device.
 - Units: commands and replies are miles; storage is millimetres; telemetry channel 2 stays 0.1 km and follows `odo set`.
 
@@ -100,6 +93,5 @@ store. Over 20 drive cycles (26.7 km) the odometer is within 0.5% of the simulat
 an unplugged bus adds no distance and loses none; a clean shutdown and reboot keep the value exactly; a power cut
 loses at most one checkpoint interval (0.5 mile or 2 min); the scale factor carries through end to end.
 
-Verified: host tests (fill rules, mixed OBD/GPS drive within 60 m of truth over 5 km, command parsing and limits,
-persistence across reboot, write failure revert). Not verified on hardware: NVS write on the device, GPS filling on
-a real drive, the command over a real mesh, lock timing while a DTC read blocks the poll task.
+Verified: host tests (command parsing and limits, persistence across reboot, write failure revert). Not verified on
+hardware: NVS write on the device, the command over a real mesh, lock timing while a VIN read blocks the poll task.

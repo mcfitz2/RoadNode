@@ -36,10 +36,9 @@ pio device monitor -e rp2040_ecusim
 
 ## What it answers (500 kbit/s, 11-bit, requests 0x7DF/0x7E0, replies 0x7E8)
 
-- Mode 01: supported-PID ranges (00/20/40, stops after 40), PIDs 04, 05, 0C, 0D, 0F, 2F, 42. Others get negative response 0x12.
-- Modes 03 / 07 / 0A: code lists, single or multi-frame with flow control (ISO-TP).
-- Mode 09: PID 00 and 02 (VIN, 17 chars) or negative response when VIN is switched off.
-- Anything outside 01/03/07/09/0A is counted as **forbidden** and answered 0x11. The node must never send mode 04.
+- Mode 01: supported-PID ranges (00/20/40, stops after 40), PIDs 0C, 0D, 42. Others get negative response 0x12.
+- Mode 09: PID 00 and 02 (VIN, 17 chars, multi-frame with flow control) or negative response when VIN is switched off.
+- Anything outside 01/09 is counted as **forbidden** and answered 0x11. The node must never send mode 04.
 
 ## Serial commands (115200, one per line)
 
@@ -47,26 +46,24 @@ pio device monitor -e rp2040_ecusim
 |---|---|
 | `status` | Current scenario, request count, forbidden count, driven distance |
 | `cycle on` / `cycle off` | Drive cycle: 10 s stopped, 20 s ramp to 60 km/h, 60 s cruise, 20 s ramp down, 20 s stopped; repeats. `on` resets the known distance |
-| `speed N`, `rpm N`, `coolant C`, `load P`, `intake C`, `fuel P`, `volts V` | Set a value (speed/rpm are overwritten while the cycle runs) |
-| `dtc 03 0301` | Add a code (hex raw, here P0301) to mode 03, 07 or 0A. Up to 20 per mode |
-| `dtc clear` | Empty all lists (simulator state only) |
+| `speed N`, `rpm N`, `volts V` | Set a value (speed/rpm are overwritten while the cycle runs) |
 | `vin <17 chars>` / `vin none` | Set the VIN, or make mode 09 unsupported |
 | `silent on` / `silent off` | Answer nothing |
 | `delay <ms>` | Hold every reply back this long (the generic profile times out at 200 ms) |
 | `pending <0-8>` | Send this many NRC 0x78 "response pending" frames before the real reply |
-| `corrupt none\|short\|skipcf` | `short`: single-frame reply with a DLC too small for its length byte; `skipcf`: drop consecutive frame 2 of a multi-frame reply |
-| `ignore 0A` / `unignore 0A` | Never answer one mode (many real ECUs ignore 0A) |
+| `corrupt none\|short\|skipcf` | `short`: single-frame reply with a DLC too small for its length byte; `skipcf`: drop the first consecutive frame of a multi-frame reply (the VIN) |
+| `ignore 09` / `unignore 09` | Never answer one mode (some real ECUs ignore 09 behind a gateway) |
 
 The driven distance is the exact integral of the simulated speed, so odometer drift can be checked:
 after one full cycle the truth is about 1,333 m (`status` prints it).
 
 ## What the bench can and cannot show
 
-Can: real firmware end to end against a known ECU: discovery, slow-PID round robin, DTC/VIN timing and
+Can: real firmware end to end against a known ECU: discovery, the speed/RPM/voltage poll, VIN timing and
 deferral while moving, LPP bytes, alerts, mileage checkpoints, NVS persistence over power cycles, admin
 commands over the mesh, odometer accuracy against the known integral, power-off checkpointing with the bench supply.
 
-Cannot: GPS (#41, #42; bench is in a basement), real RAV4 quirks, agreement with a scan tool (#17).
+Cannot: GPS (#41; bench is in a basement), real vehicle quirks.
 The simulator speaks the standard; a real ECU may differ (response timing, 0x78 pending, extra frames).
 
 ## Not yet implemented

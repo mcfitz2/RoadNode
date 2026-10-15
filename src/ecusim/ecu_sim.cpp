@@ -66,7 +66,7 @@ void EcuSim::onFrame(const CanFrame& f) {
 
 void EcuSim::handleRequest(const uint8_t* d, uint8_t n) {
   uint8_t mode = d[0];
-  bool known = mode == 0x01 || mode == 0x03 || mode == 0x07 || mode == 0x09 || mode == 0x0A;
+  bool known = mode == 0x01 || mode == 0x09;
   if (!known) {
     _forbidden++;
     _last_forbidden = mode;
@@ -78,9 +78,6 @@ void EcuSim::handleRequest(const uint8_t* d, uint8_t n) {
     case 0x01:
       if (n < 2) return;
       return mode01(d[1]);
-    case 0x03: return dtcMode(mode, _sc.stored);
-    case 0x07: return dtcMode(mode, _sc.pending);
-    case 0x0A: return dtcMode(mode, _sc.permanent);
     case 0x09:
       if (n < 2) return;
       return mode09(d[1]);
@@ -98,9 +95,6 @@ static void setBit(uint8_t mask[4], uint8_t base, uint8_t pid) {
   mask[i / 8] |= 0x80 >> (i % 8);
 }
 
-static uint8_t tempByte(float c) { return (uint8_t)(c + 40.5f); }
-static uint8_t pctByte(float p) { return (uint8_t)(p * 255.0f / 100.0f + 0.5f); }
-
 void EcuSim::mode01(uint8_t pid) {
   uint8_t p[8];
   p[0] = 0x41;
@@ -111,17 +105,15 @@ void EcuSim::mode01(uint8_t pid) {
     case 0x40: {
       uint8_t m[4] = {0, 0, 0, 0};
       if (pid == 0x00) {
-        for (uint8_t q : {0x04, 0x05, 0x0C, 0x0D, 0x0F, 0x20}) setBit(m, 0x00, q);
+        for (uint8_t q : {0x0C, 0x0D, 0x20}) setBit(m, 0x00, q);
       } else if (pid == 0x20) {
-        for (uint8_t q : {0x2F, 0x40}) setBit(m, 0x20, q);
+        setBit(m, 0x20, 0x40);
       } else {
         setBit(m, 0x40, 0x42);  // no 0x60: discovery stops here
       }
       memcpy(p + 2, m, 4);
       return respond(p, 6);
     }
-    case 0x04: p[2] = pctByte(_sc.load_pct); return respond(p, 3);
-    case 0x05: p[2] = tempByte(_sc.coolant_c); return respond(p, 3);
     case 0x0C: {
       uint16_t r = (uint16_t)(_sc.rpm * 4.0f);
       p[2] = r >> 8;
@@ -129,8 +121,6 @@ void EcuSim::mode01(uint8_t pid) {
       return respond(p, 4);
     }
     case 0x0D: p[2] = (uint8_t)(_sc.speed_kmh + 0.5f); return respond(p, 3);
-    case 0x0F: p[2] = tempByte(_sc.intake_c); return respond(p, 3);
-    case 0x2F: p[2] = pctByte(_sc.fuel_pct); return respond(p, 3);
     case 0x42: {
       uint16_t mv = (uint16_t)(_sc.module_volts * 1000.0f);
       p[2] = mv >> 8;
@@ -139,17 +129,6 @@ void EcuSim::mode01(uint8_t pid) {
     }
     default: return negative(0x01, 0x12);  // sub-function not supported
   }
-}
-
-void EcuSim::dtcMode(uint8_t mode, const DtcSet& s) {
-  uint8_t p[2 + 2 * MAX_DTCS];
-  p[0] = mode + 0x40;
-  p[1] = (uint8_t)s.count;
-  for (size_t i = 0; i < s.count; i++) {
-    p[2 + 2 * i] = s.raw[i] >> 8;
-    p[3 + 2 * i] = s.raw[i] & 0xFF;
-  }
-  respond(p, 2 + 2 * s.count);
 }
 
 void EcuSim::mode09(uint8_t pid) {
@@ -210,7 +189,7 @@ void EcuSim::sendConsecutive() {
     size_t n = _pend_len - _pend_sent;
     if (n > 7) n = 7;
     memcpy(f.data + 1, _pend + _pend_sent, n);
-    if (!(_sc.corrupt == Corrupt::SkipConsecutive && _pend_seq == 2)) push(f);  // else: sequence gap
+    if (!(_sc.corrupt == Corrupt::SkipConsecutive && _pend_seq == 1)) push(f);  // else: sequence gap
     _pend_sent += n;
     _pend_seq++;
   }

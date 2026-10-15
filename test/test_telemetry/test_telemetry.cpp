@@ -72,11 +72,10 @@ void test_roundtrip_all_fields() {
   encodeVehicle(driving(), lpp);
   DecodedVehicle d;
   TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_TRUE(d.has_total && d.has_trip && d.has_speed && d.has_rpm && d.has_state && d.has_battery);
+  TEST_ASSERT_TRUE(d.has_total && d.has_trip && d.has_speed && d.has_state && d.has_battery);
   near(123456.7, d.total_km, 1e-6);  // 0.1 km resolution
   near(12345.678, d.trip_m, 0.01);
   near(88, d.speed_kmh, 1e-9);
-  near(2150, d.rpm, 1e-9);
   TEST_ASSERT_EQUAL_HEX8(0x0F, d.state);
   near(14.2, d.battery_v, 0.011);
 }
@@ -90,7 +89,6 @@ void test_unknown_values_omitted_not_zero() {
   TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
   TEST_ASSERT_TRUE(d.has_total && d.has_trip && d.has_state);
   TEST_ASSERT_FALSE(d.has_speed);
-  TEST_ASSERT_FALSE(d.has_rpm);
   TEST_ASSERT_FALSE(d.has_battery);
   TEST_ASSERT_EQUAL_HEX8(0, d.state);
 }
@@ -98,7 +96,7 @@ void test_unknown_values_omitted_not_zero() {
 void test_size_is_small_and_fits_payload() {
   ModelLpp lpp;
   encodeVehicle(driving(), lpp);
-  TEST_ASSERT_EQUAL(29, (int)lpp.buf.size());  // total 6, trip 6, speed 4, rpm 6, state 3, battery 4
+  TEST_ASSERT_EQUAL(23, (int)lpp.buf.size());  // total 6, trip 6, speed 4, state 3, battery 4 (RPM is polled, not sent)
   TEST_ASSERT_FALSE(lpp.overflow);
   // MeshCore's buffer is MAX_PACKET_PAYLOAD-4 = 180 bytes shared with channel 1 (battery 4, GPS 11).
   TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 < 180);
@@ -209,211 +207,6 @@ void test_no_location_ever_encoded() {
   }
 }
 
-void test_dtcs_roundtrip_and_size() {
-  VehicleSnapshot s = driving();
-  s.has_dtcs = true;
-  s.dtc_total = 3;
-  s.dtc_count = 3;
-  s.dtc_raw[0] = 0x0301; s.dtc_kind[0] = vehicle::DTC_STORED;
-  s.dtc_raw[1] = 0x0420; s.dtc_kind[1] = vehicle::DTC_PENDING;
-  s.dtc_raw[2] = 0xC100; s.dtc_kind[2] = vehicle::DTC_PERMANENT;
-  ModelLpp lpp;
-  encodeVehicle(s, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_TRUE(d.has_dtc_count);
-  TEST_ASSERT_EQUAL(3, d.dtc_total);
-  TEST_ASSERT_EQUAL(3, d.dtc_n);
-  TEST_ASSERT_EQUAL_HEX16(0x0301, d.dtcs[0].raw);
-  TEST_ASSERT_EQUAL(vehicle::DTC_STORED, d.dtcs[0].kind);
-  TEST_ASSERT_EQUAL_HEX16(0x0420, d.dtcs[1].raw);
-  TEST_ASSERT_EQUAL(vehicle::DTC_PENDING, d.dtcs[1].kind);
-  TEST_ASSERT_EQUAL_HEX16(0xC100, d.dtcs[2].raw);
-  TEST_ASSERT_EQUAL(vehicle::DTC_PERMANENT, d.dtcs[2].kind);
-  TEST_ASSERT_EQUAL(29 + 3 + 3 * 6, (int)lpp.buf.size());  // base + count + 3 codes
-}
-
-void test_dtcs_zero_codes_sends_count_only_and_unknown_sends_nothing() {
-  VehicleSnapshot s = driving();
-  s.has_dtcs = true;
-  ModelLpp lpp;
-  encodeVehicle(s, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_TRUE(d.has_dtc_count);
-  TEST_ASSERT_EQUAL(0, d.dtc_total);
-  TEST_ASSERT_EQUAL(0, d.dtc_n);
-
-  VehicleSnapshot u = driving();  // never read
-  ModelLpp lpp2;
-  encodeVehicle(u, lpp2);
-  DecodedVehicle d2;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp2.buf.data(), lpp2.buf.size(), d2));
-  TEST_ASSERT_FALSE(d2.has_dtc_count);
-}
-
-void test_dtcs_worst_case_fits_payload() {
-  VehicleSnapshot s = driving();
-  s.has_dtcs = true;
-  s.dtc_total = 400;  // more than we carry; count saturates
-  s.dtc_count = (uint8_t)VehicleSnapshot::MAX_DTCS;
-  for (size_t i = 0; i < VehicleSnapshot::MAX_DTCS; i++) {
-    s.dtc_raw[i] = 0xFFFF;
-    s.dtc_kind[i] = vehicle::DTC_PERMANENT;
-  }
-  ModelLpp lpp(180);
-  encodeVehicle(s, lpp);
-  TEST_ASSERT_FALSE(lpp.overflow);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_EQUAL(255, d.dtc_total);
-  TEST_ASSERT_EQUAL(12, d.dtc_n);
-  TEST_ASSERT_EQUAL_HEX16(0xFFFF, d.dtcs[11].raw);
-  // MeshCore adds device battery (4) and GPS (11) on channel 1
-  TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
-}
-
-void test_slow_values_roundtrip() {
-  VehicleSnapshot s = driving();
-  s.has_coolant = true;
-  s.coolant_c = 90.5f;
-  s.has_load = true;
-  s.load_pct = 37.6f;
-  s.has_intake = true;
-  s.intake_c = -12.3f;
-  s.has_fuel = true;
-  s.fuel_pct = 62.0f;
-  ModelLpp lpp;
-  encodeVehicle(s, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_TRUE(d.has_coolant);
-  TEST_ASSERT_FLOAT_WITHIN(0.11, 90.5, d.coolant_c);
-  TEST_ASSERT_EQUAL(38, (int)d.load_pct);  // rounded
-  TEST_ASSERT_FLOAT_WITHIN(0.11, -12.3, d.intake_c);
-  TEST_ASSERT_EQUAL(62, (int)d.fuel_pct);
-}
-
-void test_slow_values_omitted_when_unknown() {
-  VehicleSnapshot s = driving();
-  ModelLpp lpp;
-  encodeVehicle(s, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_FALSE(d.has_coolant || d.has_load || d.has_intake || d.has_fuel);
-}
-
-void test_percentages_clamped() {
-  VehicleSnapshot s = driving();
-  s.has_load = s.has_fuel = true;
-  s.load_pct = 140;
-  s.fuel_pct = -3;
-  ModelLpp lpp;
-  encodeVehicle(s, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_EQUAL(100, (int)d.load_pct);
-  TEST_ASSERT_EQUAL(0, (int)d.fuel_pct);
-}
-
-void test_worst_case_with_slow_values_fits() {
-  VehicleSnapshot s = driving();
-  s.has_coolant = s.has_load = s.has_intake = s.has_fuel = true;
-  s.has_dtcs = true;
-  s.dtc_total = 12;
-  s.dtc_count = (uint8_t)VehicleSnapshot::MAX_DTCS;
-  ModelLpp lpp(180);
-  encodeVehicle(s, lpp);
-  TEST_ASSERT_FALSE(lpp.overflow);
-  TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
-}
-
-void test_gps_extras_roundtrip_and_separate_from_obd() {
-  VehicleSnapshot s = driving();
-  roadnode::gps::GpsTrackState g;
-  g.has_fix = g.has_motion = g.has_heading = true;
-  g.speed_kmh = 63.4f;
-  g.heading_deg = 271;
-  g.trip_mm = 12345678;
-  ModelLpp lpp;
-  encodeVehicle(s, lpp);
-  encodeGps(g, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_FLOAT_WITHIN(0.1, 12345.678, d.gps_trip_m);
-  TEST_ASSERT_FLOAT_WITHIN(0.02, 63.4, d.gps_speed_kmh);
-  TEST_ASSERT_EQUAL(271, d.gps_heading);
-  // OBD values untouched by the GPS ones
-  TEST_ASSERT_TRUE(d.has_speed);
-  TEST_ASSERT_FLOAT_WITHIN(0.01, s.speed_kmh, d.speed_kmh);
-  TEST_ASSERT_FLOAT_WITHIN(0.01, (double)(s.trip_mm / 1000.0), d.trip_m);
-}
-
-void test_trip_ratio_roundtrip_and_omitted_when_invalid() {
-  roadnode::gps::TripCompareResult r;
-  r.valid = true;
-  r.ratio_pm = 983;
-  ModelLpp lpp;
-  encodeTripCompare(r, lpp);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
-  TEST_ASSERT_TRUE(d.has_trip_ratio);
-  TEST_ASSERT_FLOAT_WITHIN(0.02, 98.3, d.trip_ratio_pct);
-  ModelLpp none;
-  encodeTripCompare(roadnode::gps::TripCompareResult(), none);
-  TEST_ASSERT_EQUAL(0, none.buf.size());
-}
-
-void test_gps_extras_omitted_without_fix_or_motion() {
-  VehicleSnapshot s = driving();
-  roadnode::gps::GpsTrackState none;
-  ModelLpp a;
-  encodeVehicle(s, a);
-  size_t base = a.buf.size();
-  encodeGps(none, a);
-  TEST_ASSERT_EQUAL(base, a.buf.size());  // nothing added
-
-  roadnode::gps::GpsTrackState fix_only;
-  fix_only.has_fix = true;
-  ModelLpp b;
-  encodeGps(fix_only, b);
-  DecodedVehicle d;
-  TEST_ASSERT_TRUE(decodeVehicle(b.buf.data(), b.buf.size(), d));
-  TEST_ASSERT_TRUE(d.has_gps_trip);
-  TEST_ASSERT_FALSE(d.has_gps_speed || d.has_gps_heading);  // unknown, never zero
-}
-
-void test_gps_extension_does_not_change_existing_encoding() {
-  VehicleSnapshot s = driving();
-  ModelLpp a, b;
-  encodeVehicle(s, a);
-  encodeVehicle(s, b);
-  roadnode::gps::GpsTrackState g;
-  g.has_fix = true;
-  encodeGps(g, b);
-  TEST_ASSERT_TRUE(b.buf.size() > a.buf.size());
-  TEST_ASSERT_EQUAL_MEMORY(a.buf.data(), b.buf.data(), a.buf.size());  // old bytes identical: appended only
-}
-
-void test_worst_case_with_gps_fits() {
-  VehicleSnapshot s = driving();
-  s.has_coolant = s.has_load = s.has_intake = s.has_fuel = true;
-  s.has_dtcs = true;
-  s.dtc_total = 12;
-  s.dtc_count = (uint8_t)VehicleSnapshot::MAX_DTCS;
-  roadnode::gps::GpsTrackState g;
-  g.has_fix = g.has_motion = g.has_heading = true;
-  roadnode::gps::TripCompareResult tr;
-  tr.valid = true;
-  tr.ratio_pm = 1000;
-  ModelLpp lpp(180);
-  encodeVehicle(s, lpp);
-  encodeGps(g, lpp);
-  encodeTripCompare(tr, lpp);
-  TEST_ASSERT_FALSE(lpp.overflow);
-  TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 <= 180);
-}
-
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_roundtrip_all_fields);
@@ -428,17 +221,5 @@ int main() {
   RUN_TEST(test_decoder_rejects_truncated_and_unknown);
   RUN_TEST(test_speed_signed_encoding_range);
   RUN_TEST(test_no_location_ever_encoded);
-  RUN_TEST(test_dtcs_roundtrip_and_size);
-  RUN_TEST(test_dtcs_zero_codes_sends_count_only_and_unknown_sends_nothing);
-  RUN_TEST(test_dtcs_worst_case_fits_payload);
-  RUN_TEST(test_slow_values_roundtrip);
-  RUN_TEST(test_slow_values_omitted_when_unknown);
-  RUN_TEST(test_percentages_clamped);
-  RUN_TEST(test_worst_case_with_slow_values_fits);
-  RUN_TEST(test_gps_extras_roundtrip_and_separate_from_obd);
-  RUN_TEST(test_trip_ratio_roundtrip_and_omitted_when_invalid);
-  RUN_TEST(test_gps_extras_omitted_without_fix_or_motion);
-  RUN_TEST(test_gps_extension_does_not_change_existing_encoding);
-  RUN_TEST(test_worst_case_with_gps_fits);
   return UNITY_END();
 }

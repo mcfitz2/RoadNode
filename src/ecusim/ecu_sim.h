@@ -10,33 +10,18 @@
 namespace roadnode {
 namespace ecusim {
 
-constexpr size_t MAX_DTCS = 20;
-
-struct DtcSet {
-  uint16_t raw[MAX_DTCS] = {0};
-  size_t count = 0;
-};
-
 // Deliberately broken replies, to exercise the node's error handling.
 enum class Corrupt : uint8_t {
   None,
   ShortFrame,       // first reply frame is shorter than its own length byte says (node: Malformed)
-  SkipConsecutive,  // multi-frame reply loses its second consecutive frame (node: Malformed, sequence gap)
+  SkipConsecutive,  // multi-frame reply loses its first consecutive frame (node: Malformed, sequence gap)
 };
 
 struct EcuScenario {
   // Mode 01 values. Overwritten every update() while drive_cycle is on (speed, rpm).
   float speed_kmh = 0;
   float rpm = 800;
-  float coolant_c = 90;
-  float load_pct = 20;
-  float intake_c = 25;
-  float fuel_pct = 50;
   float module_volts = 13.8f;
-
-  DtcSet stored;     // mode 03
-  DtcSet pending;    // mode 07
-  DtcSet permanent;  // mode 0A
 
   char vin[18] = "1HGCM82633A004352";
   bool vin_supported = true;
@@ -45,7 +30,7 @@ struct EcuScenario {
   uint32_t reply_delay_ms = 0;  // first reply frame is held back this long
   uint8_t pending_frames = 0;   // send this many "7F mode 78" (response pending) frames before the real reply
   Corrupt corrupt = Corrupt::None;
-  uint32_t ignore_modes = 0; // bit n set: mode n is never answered (many ECUs ignore 0A)
+  uint32_t ignore_modes = 0; // bit n set: mode n is never answered
   bool drive_cycle = false;  // speed follows driveSpeedKmh()
 };
 
@@ -74,7 +59,7 @@ public:
   static constexpr uint32_t CYCLE_MS = 130000;
 
   uint32_t requests() const { return _requests; }
-  // Requests for a mode outside 01/03/07/09/0A (e.g. 04 clear codes). The node must never send one.
+  // Requests for a mode outside 01/09 (e.g. 03 read codes, 04 clear codes). The node must never send one.
   uint32_t forbiddenRequests() const { return _forbidden; }
   uint8_t lastForbiddenMode() const { return _last_forbidden; }
 
@@ -86,7 +71,6 @@ private:
   void respond(const uint8_t* payload, size_t len);
   void negative(uint8_t mode, uint8_t nrc);
   void mode01(uint8_t pid);
-  void dtcMode(uint8_t mode, const DtcSet& s);
   void mode09(uint8_t pid);
   void push(const obd::CanFrame& f, uint32_t delay_ms = 0);
   void sendConsecutive();

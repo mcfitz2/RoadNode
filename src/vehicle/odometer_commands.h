@@ -15,9 +15,8 @@ constexpr uint32_t ODOMETER_MILES_MAX = 1000000;
 class OdometerControl {
 public:
   virtual ~OdometerControl() {}
-  // total_mm: odometer; gps_mm: distance GPS added while OBD speed was unavailable, since boot.
-  // False if the value could not be read (vehicle task busy).
-  virtual bool read(uint64_t& total_mm, uint64_t& gps_mm) = 0;
+  // False if the odometer could not be read (vehicle task busy).
+  virtual bool read(uint64_t& total_mm) = 0;
   // Replace the odometer and persist it. False if busy or the write failed (old value kept).
   virtual bool setTotalMm(uint64_t total_mm) = 0;
   // Distance calibration in basis points (10000 = 100%). False if busy, out of range or not saved

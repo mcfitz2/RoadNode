@@ -4,10 +4,6 @@
 #include <helpers/SensorManager.h>
 #include <helpers/sensors/EnvironmentSensorManager.h>
 
-#include "gps/gps_track.h"
-#include "gps/trip_compare.h"
-#include "storage/nvs_kv_store.h"
-
 namespace roadnode {
 
 // Stock EnvironmentSensorManager plus vehicle telemetry from VehicleRuntime.
@@ -28,14 +24,6 @@ public:
   bool clockFromGps() const { return _clock_from_gps; }
 
 private:
-  gps::GpsTrack _gps_track;
-  storage::NvsKvStore _kv;
-  gps::TripCompareResult _last_trip_compare;  // OBD vs GPS distance of the last finished trip (#43)
-  uint32_t _gps_last_ms = 0;
-  bool _gps_trip_was_active = false;
-  uint64_t _gps_offered_mm = 0;      // lifetime GPS distance already offered to the odometer gap fill
-  uint32_t _gps_offer_ms = 0;        // start of the interval the next offer covers
-  bool _gps_offer_started = false;
   bool _clock_from_gps = false;
 #endif
 };

@@ -84,33 +84,16 @@ struct Rig {
   }
 };
 
-// Layers DTC replies (modes 03/07/0A) over the Rig's mode 01 ECU. Records every
-// mode byte the poller transmits.
-struct DtcEcu {
-  std::vector<uint8_t> stored_pairs, pending_pairs;  // hi, lo, hi, lo...
-  bool answer_pending = true;
-  bool answer_permanent = false;  // silent, like many older ECUs
+// Records every mode byte the poller transmits, passing frames on to the Rig's ECU.
+struct ModeLog {
   std::vector<uint8_t> modes_sent;
 
   void attach(Rig& r) {
-    auto mode01 = r.bus.on_send;
-    r.bus.on_send = [this, mode01, &r](const CanFrame& f) {
+    auto ecu = r.bus.on_send;
+    r.bus.on_send = [this, ecu](const CanFrame& f) {
       if (f.id == 0x7DF) modes_sent.push_back(f.data[1]);
-      if (f.id == 0x7DF && f.data[1] == 0x03) reply(r.bus, 0x43, stored_pairs);
-      else if (f.id == 0x7DF && f.data[1] == 0x07 && answer_pending) reply(r.bus, 0x47, pending_pairs);
-      else if (f.id == 0x7DF && f.data[1] == 0x0A && answer_permanent) reply(r.bus, 0x4A, {});
-      else mode01(f);
+      ecu(f);
     };
-  }
-  static void reply(FakeBus& bus, uint8_t mode, const std::vector<uint8_t>& pairs) {
-    CanFrame f;
-    f.id = 0x7E8;
-    f.dlc = 8;
-    f.data[0] = (uint8_t)(2 + pairs.size());  // mode + count + pairs (single frame, <= 5 bytes of codes)
-    f.data[1] = mode;
-    f.data[2] = (uint8_t)(pairs.size() / 2);
-    for (size_t i = 0; i < pairs.size(); i++) f.data[3 + i] = pairs[i];
-    bus.inbox.push_back(f);
   }
 };
 
@@ -251,79 +234,6 @@ void test_vin_not_in_snapshot_bytes() {
   for (size_t i = 0; i + 17 <= sizeof(s); i++)
     if (memcmp(p + i, "1HGCM82633A004352", 17) == 0) found = true;
   TEST_ASSERT_FALSE(found);
-}
-
-// Adds Mode 01 PIDs 04, 05, 0F, 2F (coolant 90 C, load ~50%, intake 25 C, fuel ~60%)
-// on top of the Rig's ECU, with its own capability masks.
-struct SlowEcu {
-  bool answer = true;
-  std::vector<uint8_t> pids_asked;
-
-  void attach(Rig& r) {
-    auto prev = r.bus.on_send;
-    r.bus.on_send = [this, prev, &r](const CanFrame& f) {
-      if (f.id == 0x7DF && f.data[1] == 0x01) {
-        uint8_t pid = f.data[2];
-        if (pid == 0x00) return r.bus.push(0x7E8, {6, 0x41, 0x00, 0x18, 0x1A, 0x00, 0x01});
-        if (pid == 0x20) return r.bus.push(0x7E8, {6, 0x41, 0x20, 0x00, 0x02, 0x00, 0x00});
-        if (pid == 0x04 || pid == 0x05 || pid == 0x0F || pid == 0x2F) {
-          pids_asked.push_back(pid);
-          if (!answer) return;
-          uint8_t v = pid == 0x04 ? 128 : pid == 0x05 ? 130 : pid == 0x0F ? 65 : 153;
-          return r.bus.push(0x7E8, {3, 0x41, pid, v});
-        }
-      }
-      prev(f);
-    };
-  }
-};
-
-void test_slow_pids_polled_round_robin_not_every_cycle() {
-  Rig r;
-  SlowEcu e;
-  e.attach(r);
-  r.ecu.speed = 50;
-  r.run(30);
-  // 1 request per 2.5 s (3 s at 1 Hz steps), not 4 per cycle
-  TEST_ASSERT_TRUE(e.pids_asked.size() >= 8 && e.pids_asked.size() <= 13);
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_TRUE(s.has_coolant && s.has_load && s.has_intake && s.has_fuel);
-  TEST_ASSERT_FLOAT_WITHIN(0.5, 90, s.coolant_c);
-  TEST_ASSERT_FLOAT_WITHIN(0.5, 50.2, s.load_pct);
-  TEST_ASSERT_FLOAT_WITHIN(0.5, 25, s.intake_c);
-  TEST_ASSERT_FLOAT_WITHIN(0.5, 60, s.fuel_pct);
-}
-
-void test_slow_pids_unknown_without_ecu_support() {
-  Rig r;  // base ECU does not advertise 04/05/0F/2F
-  r.ecu.speed = 50;
-  r.run(30);
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_FALSE(s.has_coolant || s.has_load || s.has_intake || s.has_fuel);
-}
-
-void test_slow_values_go_stale() {
-  Rig r;
-  SlowEcu e;
-  e.attach(r);
-  r.run(20);
-  TEST_ASSERT_TRUE(r.telem.snapshot().has_coolant);
-  e.answer = false;
-  r.run(80);  // values stop refreshing; >30 s old reads as unknown
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_FALSE(s.has_coolant || s.has_fuel);
-}
-
-void test_slow_polling_keeps_speed_spacing() {
-  Rig r;
-  SlowEcu e;
-  e.attach(r);
-  r.ecu.speed = 72;  // 20 m/s
-  r.run(120);
-  uint64_t before = r.telem.snapshot().trip_mm;
-  r.run(100);
-  double m = (double)(r.telem.snapshot().trip_mm - before) / 1000.0;
-  TEST_ASSERT_FLOAT_WITHIN(25.0, 2000.0, m);  // 100 s at 72 km/h, within 1.25%
 }
 
 void setUp() {}
@@ -505,152 +415,38 @@ void test_snapshot_consistent_across_threads() {
   TEST_ASSERT_EQUAL(0, torn);
 }
 
-void test_dtcs_read_and_merged_in_snapshot() {
-  Rig r;
-  DtcEcu d;
-  d.stored_pairs = {0x03, 0x01};   // P0301
-  d.pending_pairs = {0x04, 0x20};  // P0420
-  d.attach(r);
-  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
-  r.ecu.rpm_raw = 3200;
-  r.run(5);
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_TRUE(s.has_dtcs);
-  TEST_ASSERT_EQUAL(2, s.dtc_total);
-  TEST_ASSERT_EQUAL(2, s.dtc_count);
-  TEST_ASSERT_EQUAL_HEX16(0x0301, s.dtc_raw[0]);
-  TEST_ASSERT_EQUAL(DTC_STORED, s.dtc_kind[0]);
-  TEST_ASSERT_EQUAL_HEX16(0x0420, s.dtc_raw[1]);
-  TEST_ASSERT_EQUAL(DTC_PENDING, s.dtc_kind[1]);
-}
-
-void test_dtcs_zero_codes_is_known_not_unknown() {
-  Rig r;
-  DtcEcu d;
-  d.attach(r);
-  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
-  r.ecu.rpm_raw = 3200;
-  r.run(5);
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_TRUE(s.has_dtcs);
-  TEST_ASSERT_EQUAL(0, s.dtc_total);
-}
-
-void test_dtcs_not_read_without_ecu() {
-  Rig r;
-  r.ecu.on = false;
-  r.run(10);
-  TEST_ASSERT_FALSE(r.telem.snapshot().has_dtcs);
-  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
-}
-
-void test_dtcs_polled_slowly() {
-  Rig r;
-  DtcEcu d;
-  d.attach(r);
-  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
-  r.ecu.rpm_raw = 3200;
-  r.run(65);  // ~65 s at 30 s interval: first read plus two more
-  TEST_ASSERT_UINT32_WITHIN(1, 3, r.poller.stats().dtc_reads);
-}
-
-void test_silent_mode_0a_does_not_drop_obd_connection() {
-  Rig r;
-  DtcEcu d;  // 0A never answers
-  d.attach(r);
-  r.ecu.speed = 0;  // stopped: DTC reads are deferred while moving
-  r.ecu.rpm_raw = 3200;
-  r.run(100);
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_TRUE(s.obd_connected);
-  TEST_ASSERT_TRUE(s.has_dtcs);
-}
-
 void test_poller_never_transmits_clear_or_other_write_modes() {
   Rig r;
-  DtcEcu d;
+  ModeLog d;
   d.attach(r);
   r.ecu.speed = 50;
   r.ecu.rpm_raw = 3200;
   r.run(120);
+  r.ecu.speed = 0;  // stopped too, so the VIN read gets its chance
+  r.run(30);
   TEST_ASSERT_FALSE(d.modes_sent.empty());
-  for (uint8_t m : d.modes_sent)
-    TEST_ASSERT_TRUE(m == 0x01 || m == 0x03 || m == 0x07 || m == 0x0A || m == 0x09);
-}
-
-void test_dtc_reads_deferred_while_moving() {
-  Rig r;
-  DtcEcu d;
-  d.attach(r);
-  r.ecu.speed = 50;
-  r.ecu.rpm_raw = 3200;
-  r.run(120);  // 2 min moving, 30 s interval, 10 min force limit
-  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
-  for (uint8_t m : d.modes_sent) TEST_ASSERT_TRUE(m == 0x01);  // no 03/07/0A while moving
-}
-
-void test_dtc_read_happens_once_stopped() {
-  Rig r;
-  DtcEcu d;
-  d.stored_pairs = {0x03, 0x01};
-  d.attach(r);
-  r.ecu.speed = 50;
-  r.ecu.rpm_raw = 3200;
-  r.run(60);
-  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
-  r.ecu.speed = 0;
-  r.run(3);
-  VehicleSnapshot s = r.telem.snapshot();
-  TEST_ASSERT_EQUAL(1, (int)r.poller.stats().dtc_reads);
-  TEST_ASSERT_TRUE(s.has_dtcs);
-  TEST_ASSERT_EQUAL_HEX16(0x0301, s.dtc_raw[0]);
-}
-
-void test_dtc_read_forced_after_max_defer() {
-  Rig r;
-  DtcEcu d;
-  d.attach(r);
-  r.ecu.speed = 50;
-  r.ecu.rpm_raw = 3200;
-  r.run(500);  // 8+ min moving: still deferred
-  TEST_ASSERT_EQUAL(0, (int)r.poller.stats().dtc_reads);
-  r.run(200);  // past the 10 min limit with no stop
-  TEST_ASSERT_TRUE(r.poller.stats().dtc_reads >= 1);
+  for (uint8_t m : d.modes_sent) TEST_ASSERT_TRUE(m == 0x01 || m == 0x09);
 }
 
 void test_speed_samples_keep_spacing_while_moving() {
   Rig r;
-  DtcEcu d;
-  d.attach(r);
   r.ecu.speed = 72;
   r.ecu.rpm_raw = 3200;
   r.run(100);
-  // 72 km/h = 20 m/s: ~99 s of integration, no DTC stall inside it
+  // 72 km/h = 20 m/s: ~99 s of integration
   VehicleSnapshot s = r.telem.snapshot();
   TEST_ASSERT_UINT64_WITHIN(150000, 1980000, s.total_mm);
 }
 
 int main() {
   UNITY_BEGIN();
-  RUN_TEST(test_slow_pids_polled_round_robin_not_every_cycle);
-  RUN_TEST(test_slow_pids_unknown_without_ecu_support);
-  RUN_TEST(test_slow_values_go_stale);
-  RUN_TEST(test_slow_polling_keeps_speed_spacing);
   RUN_TEST(test_vin_read_once_stopped_and_stored);
   RUN_TEST(test_vin_deferred_while_moving);
   RUN_TEST(test_vin_unsupported_not_retried);
   RUN_TEST(test_vin_silent_ecu_retries_bounded);
   RUN_TEST(test_configured_id_overrides_mileage_record_id);
   RUN_TEST(test_vin_not_in_snapshot_bytes);
-  RUN_TEST(test_dtc_reads_deferred_while_moving);
-  RUN_TEST(test_dtc_read_happens_once_stopped);
-  RUN_TEST(test_dtc_read_forced_after_max_defer);
   RUN_TEST(test_speed_samples_keep_spacing_while_moving);
-  RUN_TEST(test_dtcs_read_and_merged_in_snapshot);
-  RUN_TEST(test_dtcs_zero_codes_is_known_not_unknown);
-  RUN_TEST(test_dtcs_not_read_without_ecu);
-  RUN_TEST(test_dtcs_polled_slowly);
-  RUN_TEST(test_silent_mode_0a_does_not_drop_obd_connection);
   RUN_TEST(test_poller_never_transmits_clear_or_other_write_modes);
   RUN_TEST(test_normal_driving);
   RUN_TEST(test_no_can_connection_at_boot);

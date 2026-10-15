@@ -85,7 +85,7 @@ Note `SensorMesh` and the stock `main.cpp` live in `examples/`, which is not par
 | engine running / vehicle active | `addDigitalInput`/`addPresence` |
 | GPS (later) | `addGPS` |
 
-- Alerts: `SensorMesh` has `alertIf(condition, Trigger&, priority, text)` with `PERM_RECV_ALERTS_LO/HI` for push messages to subscribed clients. Useful for trip start/end and DTC events (#32, #46).
+- Alerts: `SensorMesh` has `alertIf(condition, Trigger&, priority, text)` with `PERM_RECV_ALERTS_LO/HI` for push messages to subscribed clients. Useful for trip start/end and parked alerts (#32).
 - Time series: `TimeSeriesData` in `examples/simple_sensor/` provides min/max/avg history.
 - `docs/payloads.md` says the telemetry request payload is "sensor- and application-specific" and not defined in `BaseChatMesh`, so telemetry request/response is handled by the `SensorMesh` app code, not by a protocol-level definition.
 - Companion apps display LPP telemetry directly.

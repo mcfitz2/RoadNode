@@ -31,12 +31,6 @@ void Mileage::add(uint64_t mm) {
   if (_trip_active) _trip_mm += mm;
 }
 
-void Mileage::addExternal(uint64_t mm) {
-  mm = (mm * _scale_bp + SCALE_UNITY_BP / 2) / SCALE_UNITY_BP;
-  add(mm);
-  _external_mm += mm;
-}
-
 bool Mileage::setScaleBp(uint32_t bp) {
   if (bp < SCALE_MIN_BP || bp > SCALE_MAX_BP) return false;
   _scale_bp = bp;

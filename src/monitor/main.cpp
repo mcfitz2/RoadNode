@@ -59,13 +59,10 @@ static void dumpCapabilitiesOnce() {
 void loop() {
   dumpCapabilitiesOnce();
   vehicle::VehicleSnapshot s = vehicle::VehicleRuntime::telemetry().snapshot();
-  // The slow PIDs are printed too, so a car test can check them against a scan tool (PROJ-576)
-  // without the mesh firmware and an app. "?" means the value has never been read.
-  Serial.printf("t=%lu active=%d conn=%d eng=%d spd=%s%.0f rpm=%s%.0f batt=%s%.1f "
-                "cool=%s%.0fC load=%s%.0f%% iat=%s%.0fC fuel=%s%.0f%% total=%.3fkm trip=%.3fkm\n",
+  // "?" means the value has never been read.
+  Serial.printf("t=%lu active=%d conn=%d eng=%d spd=%s%.0f rpm=%s%.0f batt=%s%.1f total=%.3fkm trip=%.3fkm\n",
                 (unsigned long)millis(), s.vehicle_active, s.obd_connected, s.engine_running, s.has_speed ? "" : "?",
-                s.speed_kmh, s.has_rpm ? "" : "?", s.rpm, s.has_battery ? "" : "?", s.battery_v,
-                s.has_coolant ? "" : "?", s.coolant_c, s.has_load ? "" : "?", s.load_pct, s.has_intake ? "" : "?",
-                s.intake_c, s.has_fuel ? "" : "?", s.fuel_pct, s.total_mm / 1e6, s.trip_mm / 1e6);
+                s.speed_kmh, s.has_rpm ? "" : "?", s.rpm, s.has_battery ? "" : "?", s.battery_v, s.total_mm / 1e6,
+                s.trip_mm / 1e6);
   delay(1000);
 }

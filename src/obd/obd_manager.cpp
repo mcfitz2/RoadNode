@@ -20,7 +20,7 @@ const char* statusName(Status s) {
 }
 
 bool modeAllowed(uint8_t mode) {
-  return mode == 0x01 || mode == 0x03 || mode == 0x07 || mode == 0x09 || mode == 0x0A;
+  return mode == 0x01 || mode == 0x09;
 }
 
 bool ObdManager::accepts(uint32_t id) const {
@@ -132,40 +132,6 @@ Status ObdManager::request(uint8_t mode, uint8_t pid, Response& out) {
   out.len = len - 2;
   memcpy(out.data, msg + 2, out.len);
   return Status::Ok;
-}
-
-Status ObdManager::requestMode(uint8_t mode, Response& out) {
-  out.len = 0;
-  if (!modeAllowed(mode)) return Status::Forbidden;
-  if (!_enabled) return Status::Disabled;
-
-  CanFrame req;
-  req.id = _profile->request_id;
-  req.dlc = 8;
-  memset(req.data, 0x55, 8);
-  req.data[0] = 1;
-  req.data[1] = mode;
-  if (!_bus.send(req)) return Status::BusError;
-
-  uint8_t msg[Response::MAX + 2];
-  size_t len = 0;
-  Status st = receiveMessage(mode, -1, msg, len, out.nrc, out.source_id);
-  if (st != Status::Ok) return st;
-  if (len < 1) return Status::Malformed;
-  // msg = [mode+0x40, data...]
-  out.len = len - 1;
-  if (out.len > Response::MAX) return Status::Malformed;
-  memcpy(out.data, msg + 1, out.len);
-  return Status::Ok;
-}
-
-Status ObdManager::readDtcs(DtcMode mode, DtcList& out) {
-  out.count = 0;
-  Response r;
-  Status st = requestMode((uint8_t)mode, r);
-  if (st == Status::NegativeResponse && (r.nrc == 0x11 || r.nrc == 0x12)) return Status::Unsupported;
-  if (st != Status::Ok) return st;
-  return decodeDtcs(r.data, r.len, out) ? Status::Ok : Status::Malformed;
 }
 
 Status ObdManager::readPid(uint8_t pid, float& value) {
