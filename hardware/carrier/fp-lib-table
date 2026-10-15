@@ -1,0 +1,5 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "rn_parts")(type "KiCad")(uri "${KIPRJMOD}/lib/rn_parts.pretty")(options "")(descr "JLC/LCSC parts fetched with easyeda2kicad"))
+  (lib (name "rn_carrier")(type "KiCad")(uri "${KIPRJMOD}/lib/rn_carrier.pretty")(options "")(descr "Board-specific footprints"))
+)
