@@ -1,8 +1,10 @@
 // Derived from MeshCore (MIT, see THIRD_PARTY_NOTICES.md).
 // RoadNode copy of vendor/MeshCore/examples/simple_sensor/main.cpp. Differences from
 // the vendor file are limited to the alert logic in MyMesh (engine start / parked
-// alerts carrying position, also posted to an optional private channel) and the
-// parked deep sleep (PROJ-596). Re-diff against the vendor file on every MeshCore bump.
+// alerts carrying position, also posted to an optional private channel), the
+// parked deep sleep (PROJ-596) and the removal of the stock Li-ion battery alerts and
+// battery history (PROJ-687: the carrier has no cell, so the ADC reading means nothing).
+// Re-diff against the vendor file on every MeshCore bump.
 #include "SensorMesh.h"
 #include "vehicle/alert_channel.h"
 #include "vehicle/alert_logic.h"
@@ -51,8 +53,7 @@ static void enterParkedSleep() {
 class MyMesh : public SensorMesh {
 public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables)
-     : SensorMesh(board, radio, ms, rng, rtc, tables), 
-       battery_data(12*24, 5*60)    // 24 hours worth of battery data, every 5 minutes
+     : SensorMesh(board, radio, ms, rng, rtc, tables)
   {
   }
 
@@ -63,12 +64,10 @@ public:
 
 protected:
   /* ========================== custom logic here ========================== */
-  Trigger low_batt, critical_batt;
   roadnode::storage::NvsKvStore settings_kv;
   Trigger vehicle_started, vehicle_parked, vehicle_periodic;
   roadnode::vehicle::AlertLogic vehicle_alerts = roadnode::vehicle::AlertLogic(alertConfig());
   roadnode::vehicle::AlertChannel alert_channel;
-  bool was_low_batt = false, was_critical_batt = false;
   bool was_started = false, was_parked = false, was_periodic = false;
 #ifdef PIN_CAR_ON
   roadnode::vehicle::SleepPolicy sleep_policy;
@@ -120,15 +119,7 @@ protected:
     alertIf(condition, t, pri, text);
   }
 
-  TimeSeriesData  battery_data;
-
   void onSensorDataRead() override {
-    float batt_voltage = getVoltage(TELEM_CHANNEL_SELF);
-
-    battery_data.recordData(getRTCClock(), batt_voltage);   // record battery
-    notify(batt_voltage < 3.4f, was_critical_batt, critical_batt, HIGH_PRI_ALERT, "Battery is critical!");
-    notify(batt_voltage < 3.6f, was_low_batt, low_batt, LOW_PRI_ALERT, "Battery is low");
-
     // Trip-end timestamp: only once GPS has set the RTC (a stock RTC holds an arbitrary value).
 #if ENV_INCLUDE_GPS
     if (sensors.clockFromGps()) roadnode::vehicle::VehicleRuntime::setTime(getRTCClock()->getCurrentTime());
@@ -151,9 +142,9 @@ protected:
 #endif
   }
 
+  // No history: the stock battery series is gone with the battery (PROJ-687).
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {
-    battery_data.calcMinMaxAvg(getRTCClock(), start_secs_ago, end_secs_ago, &dest[0], TELEM_CHANNEL_SELF, LPP_VOLTAGE);
-    return 1;
+    return 0;
   }
 
   bool handleCustomCommand(uint32_t sender_timestamp, char* command, char* reply) override {
