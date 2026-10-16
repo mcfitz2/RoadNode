@@ -82,7 +82,8 @@ public:
   const CapabilityTable& capabilities() const { return _caps; }
   void clearCapabilities() { _caps.clear(); }
 
-  // Any frame at all from a responder ID, whether or not it answered us.
+  // Any frame received while waiting for a reply, from any ID: counted before the responder-ID
+  // filter, so ordinary bus traffic counts too.
   // Used to tell a live vehicle bus from a silent one.
   bool anyFrameSeen() const { return _frames_seen != 0; }
   uint32_t lastFrameMs() const { return _last_frame_ms; }

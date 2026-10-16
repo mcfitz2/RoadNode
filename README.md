@@ -1,11 +1,11 @@
 # RoadNode
 
-Low-power OBD-II vehicle telemetry node. Reads standard OBD-II over CAN, integrates vehicle speed into distance, and reports over [MeshCore](https://github.com/meshcore-dev/MeshCore) as a sensor node. See [`plan.md`](plan.md) for the full plan and [`docs/meshcore.md`](docs/meshcore.md) for the MeshCore integration notes.
+Low-power OBD-II vehicle telemetry node. Reads standard OBD-II over CAN, integrates vehicle speed into distance, and reports over [MeshCore](https://github.com/meshcore-dev/MeshCore) as a sensor node. See [`plan.md`](plan.md) for the original plan (parts are superseded; its header lists which) and [`docs/meshcore.md`](docs/meshcore.md) for the MeshCore integration notes.
 
 ## Layout
 
 - `vendor/MeshCore`: unmodified git submodule, pinned. Never edit it.
-- `src/`: RoadNode code (`can/ obd/ vehicle/ storage/ gps/ telemetry/`). Only `telemetry/` includes MeshCore headers.
+- `src/`: RoadNode code (`can/ obd/ vehicle/ storage/ telemetry/ node/`, plus the standalone tools `sniffer/ monitor/ ecusim/`). Only `telemetry/` and `node/` include MeshCore headers.
 - `platformio.ini`: env `heltec_v4_roadnode`.
 
 ```sh
@@ -32,7 +32,10 @@ pio test -d host                # host unit tests
 | CAN High | | CANH | 6 |
 | CAN Low | | CANL | 14 |
 
-Do not connect OBD pin 16 (+12 V) to anything yet. Power the board from USB-C or Li-ion.
+Power depends on the build:
+
+- **Breadboard:** power the board from USB-C and leave OBD pin 16 (+12 V) unconnected.
+- **Carrier PCB** ([hardware/carrier/](hardware/carrier/)): powered from OBD pin 16 through a fuse, TVS clamp, 5.2 V buck and low-voltage cutoff. There is no battery. The carrier powers the transceiver from VEXT (GPIO36), not the 3.3 V pin.
 
 The env does not set MeshCore's `ENV_PIN_SDA/SCL`, which the stock `heltec_v4_sensor` env points at GPIO3/4. Keep it that way.
 
