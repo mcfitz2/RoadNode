@@ -21,11 +21,16 @@ struct Ecu {
   uint16_t batt_mv = 12600;
   bool support_battery = true;
   bool neg_rpm = false;
+  bool neg_all = false;  // every Mode 01 request answered 7F (a gateway after shutdown)
   bool malformed_speed = false;
 
   void attach(FakeBus& bus) {
     bus.on_send = [this, &bus](const CanFrame& f) {
       if (!on || f.id != 0x7DF || f.data[1] != 0x01) return;
+      if (neg_all) {
+        bus.push(0x7E8, {3, 0x7F, 0x01, 0x22});
+        return;
+      }
       switch (f.data[2]) {
         case 0x00:  // 0C, 0D (and 42 is in the next range)
           bus.push(0x7E8, {6, 0x41, 0x00, 0x00, 0x18, 0x00, 0x01});
@@ -340,6 +345,24 @@ void test_negative_response_keeps_connection() {
   TEST_ASSERT_TRUE(r.poller.stats().negative > 0);
 }
 
+void test_all_negative_responses_clear_connection() {
+  Rig r;
+  r.ecu.speed = 36;
+  r.ecu.rpm_raw = 4000;
+  r.run(5);
+  TEST_ASSERT_TRUE(r.telem.snapshot().obd_connected);
+  r.ecu.neg_all = true;  // engine off: the gateway keeps answering, but only negatively
+  r.run(5);              // values go stale after value_stale_ms (3 s)
+  VehicleSnapshot s = r.telem.snapshot();
+  TEST_ASSERT_FALSE(s.obd_connected);
+  TEST_ASSERT_FALSE(s.has_speed);
+  TEST_ASSERT_FALSE(s.has_rpm);
+  TEST_ASSERT_TRUE(s.vehicle_active);  // frames still arrive
+  r.ecu.neg_all = false;
+  r.run(2);
+  TEST_ASSERT_TRUE(r.telem.snapshot().obd_connected);
+}
+
 void test_bus_off_recovery_rate_limited() {
   Rig r;
   r.ecu.speed = 36;
@@ -451,6 +474,7 @@ int main() {
   RUN_TEST(test_unsupported_pid_skipped_not_fatal);
   RUN_TEST(test_malformed_response_counted_and_recovers);
   RUN_TEST(test_negative_response_keeps_connection);
+  RUN_TEST(test_all_negative_responses_clear_connection);
   RUN_TEST(test_bus_off_recovery_rate_limited);
   RUN_TEST(test_vehicle_shutdown_ends_trip_and_saves);
   RUN_TEST(test_transmit_gate_closed_sends_nothing);

@@ -74,6 +74,7 @@ void EcuSim::handleRequest(const uint8_t* d, uint8_t n) {
   if (_sc.silent) return;
   if (mode < 32 && (_sc.ignore_modes & (1u << mode))) return;
   if (!known) return negative(mode, 0x11);  // service not supported
+  if (_sc.refuse) return negative(mode, 0x22);  // conditions not correct
   switch (mode) {
     case 0x01:
       if (n < 2) return;

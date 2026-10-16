@@ -49,6 +49,7 @@ pio device monitor -e rp2040_ecusim
 | `speed N`, `rpm N`, `volts V` | Set a value (speed/rpm are overwritten while the cycle runs) |
 | `vin <17 chars>` / `vin none` | Set the VIN, or make mode 09 unsupported |
 | `silent on` / `silent off` | Answer nothing |
+| `refuse on` / `refuse off` | Answer every mode 01/09 request with NRC 0x22, as some gateways do after shutdown (the node must still read as disconnected and report parked) |
 | `delay <ms>` | Hold every reply back this long (ObdManager times out at 200 ms) |
 | `pending <0-8>` | Send this many NRC 0x78 "response pending" frames before the real reply |
 | `corrupt none\|short\|skipcf` | `short`: single-frame reply with a DLC too small for its length byte; `skipcf`: drop the first consecutive frame of a multi-frame reply (the VIN) |
