@@ -31,6 +31,7 @@ JLC: Extended, stock 3372, HSOIC-8 (DDA, exposed pad), ~$1.18. Also stocked: LMR
 | CVCC | 1 uF >= 16 V ceramic, VCC to GND (C15849, 50 V X5R, Basic) | Sec 8.2.1.2.7. VCC (5 V LDO) must not be loaded externally except PG pull-up. |
 | EN divider | RENT = 3.00 MΩ (C23156, Preferred) from Vin to EN, RENB = 750 kΩ (C23240, Preferred) EN to GND | Eq 10: RENT = (VON/VEN-H - 1) x RENB with VEN-H = 1.231 V typ (1.157-1.3). Ratio 4.00 (Basic/Preferred values; 3.83 M was Extended): turn-on = 1.231 x 5.00 = 6.16 V (5.79-6.50 V over spread). Turn-off = VON x (1 - 0.110/1.231) = 5.60 V. Divider current only ~3.2 uA at 12 V (EN leakage 2.7 nA). The 10-100 k RENB guidance in 8.2.1.2.9 would burn 10+ uA; 1 MΩ is fine given nA leakage. Optional 1 nF EN-to-GND for noise. |
 | EN absolute | EN must not exceed VIN by > 0.3 V (Table 6.3 note 2) - satisfied by divider. | |
+| Low-voltage cutoff | 2N7002 (C8545) from EN to GND, gate = UV_LOW | The car-battery cutoff (TLV7022 half B against the REF3325 2.5 V reference, from the always-on HT7533 rail) pulls EN low below ~11.6 V and releases it above ~12.0 V; see `sim/uvlo_thr.py`. The EN divider above only sets the buck's own UVLO, which sits well below either. |
 | PG (pin 4) | open drain. Leave open (datasheet: "Can be left open when not used") or 100 k to VCC (8.2.1.2.7: 10-100 k). Max 18 V. | |
 | MODE/RT | none on this part (fixed 400 kHz, variant A = PFM) | |
 | PAD (9) | solder to PGND copper, thermal relief, multiple vias (Table 5-1) | |

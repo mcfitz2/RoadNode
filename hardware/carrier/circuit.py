@@ -6,9 +6,8 @@ this directory (KiCad's bundled Python + skidl):
 
     .venv/bin/python circuit.py
 
-Design notes and the reasoning behind each value live in notes/design.md; the
-NTC gate values come from sim/ntc_calc.py and are checked by sim/ntc_gate*.cir
-and sim/ntc_mc.py.
+Buck values are reasoned in notes/buck.md; the comparator thresholds come from
+sim/wake_thr.py and sim/uvlo_thr.py.
 """
 import os
 
@@ -56,15 +55,14 @@ gnd.drive = 3  # POWER
 # ---------------------------------------------------------------- nets
 v_car = Net("V_CAR")  # OBD pin 16 via pigtail, unfused
 vin = Net("VIN")  # fused, clamped
-v5r = Net("V5R")  # buck output, always on while plugged in
-v5g = Net("V5G")  # after the temperature-gated load switch
+v5r = Net("V5R")  # buck output, on unless the low-voltage cutoff holds the buck off
 h5v = Net("H_5V")  # Heltec header 5V pin (= its USB VBUS net)
-v3ref = Net("V3REF")  # 3.3 V reference for the NTC divider and thresholds
+v3a = Net("V3A")  # always-on 3.3 V from VIN: comparators and pull-ups, up while the buck is off
+vref = Net("VREF")  # 2.5 V precision reference for both comparator thresholds
 v3v3 = Net("3V3")  # Heltec always-on 3.3 V (header)
 vext = Net("VEXT")  # Heltec switched 3.3 V (GPIO36 low = on)
 canh, canl = Net("CANH"), Net("CANL")
-bat_p, bat_n = Net("BAT_P"), Net("BAT_N")
-for n in (vin, v5r, v3v3, vext, bat_p):
+for n in (vin, v5r, v3v3, vext):
     n.drive = 3
 
 # ---------------------------------------------------------------- vehicle connector
@@ -125,78 +123,62 @@ c_out_hf = C("100n", C100N)
 c_out_hf[1] += v5r
 c_out_hf[2] += gnd
 
-# ---------------------------------------------------------------- NTC charge gate (sim/)
-# Charging is allowed only while the cell NTC reads ~1..44 C. Outside that
-# window the load switch opens, the Heltec loses 5 V and runs from the cells.
-u_ref = ic("XC6206P302MR", "XC6206P332MR 3.3V", "SOT-23-3_L2.9-W1.6-P1.90-LS2.8-BR", "C5446")  # same pinout as the 3.0 V symbol
-u_ref["Vin"] += v5r
-u_ref["Vout"] += v3ref
-u_ref["GND"] += gnd
-for n in (v5r, v3ref):
-    c = C("1u", C1U)
+# OR-ing diode into the Heltec 5V pin. Header 5V is the Heltec's USB VBUS net; the
+# diode drop keeps H_5V (~4.8 V) under USB's 5.0 V so a connected laptop wins and
+# is never back-fed.
+d_or = ic("SS34_C8678", "SS34", "SMA_L4.3-W2.6-LS5.2-RD", "C8678", "D")
+d_or["A"] += v5r
+d_or["K"] += h5v
+
+# ---------------------------------------------------------------- always-on 3.3 V + reference
+# Runs from VIN so the comparators keep working with the buck off. HT7533 is rated
+# 30 V: 10k + 24 V zener hold its input below that through a load dump (the TVS
+# clamps VIN at ~42 V); the 10k drops only ~0.2 V at the ~20 uA it carries.
+v3a_in = Net("V3A_IN")
+vin & R("10k", R_LCSC["10k"]) & v3a_in
+d_z = ic("BZT52C24", "BZT52C24", "SOD-123_L2.7-W1.6-LS3.7-RD", "C173422", "D")
+d_z["K"] += v3a_in
+d_z["A"] += gnd
+u_ldo = ic("HT7533-1_C14289", "HT7533-1", "SOT-89-3_L4.5-W2.5-P1.50-LS4.2-BR", "C14289")
+u_ldo["Vin"] += v3a_in
+u_ldo["Vout"] += v3a
+u_ldo["GND"] += gnd
+u_vref = ic("REF3325AIDBZR", "REF3325 2.5V", "SOT-23_L2.9-W1.3-P1.90-LS2.4-BR", "C69039")
+u_vref["IN"] += v3a
+u_vref["OUT"] += vref
+u_vref["GND"] += gnd
+for n, val, code in ((v3a_in, "1u", C1U), (v3a, "10u", "C15850"), (vref, "100n", C100N)):
+    c = C(val, code, "Capacitor_SMD:C_0805_2012Metric" if val == "10u" else C0603)
     c[1] += n
     c[2] += gnd
 
-ntc_t, ha, hb = Net("NTC_T"), Net("HA"), Net("HB")
-temp_ok, too_hot, chg_gate = Net("TEMP_OK"), Net("TOO_HOT"), Net("CHG_GATE")
-r_ntc_top = R("100k", R_LCSC["100k"])
-v3ref & r_ntc_top & ntc_t
-th = ic("SDNT1608X104F3950FTF", "100k B3950", "R0603", "C919169", ref="TH1")  # place between the cells
-th[1] += ntc_t
-th[2] += gnd
-c_ntc = C("100n", C100N)
-c_ntc[1] += ntc_t
-c_ntc[2] += gnd
-r_adc = R("1k", R_LCSC["1k"])  # NTC_T -> GPIO6 (ADC1_CH5), never above 3.3 V
-ntc_adc = Net("NTC_ADC")
-ntc_t & r_adc & ntc_adc
-
+# ---------------------------------------------------------------- low-voltage cutoff
+# Holds the buck off below ~11.6 V (car battery getting low, still starts) and lets
+# it run again above ~12.0 V: worst case off 11.39..11.83 V, on 11.77..12.23 V
+# (sim/uvlo_thr.py). Measured key-on sag is 12.0 V (RAV4); resting 12.5 V on both cars. The 6 s filter ignores parked load spikes and rides through
+# short cranking dips. Mainly a guard against firmware that fails to sleep.
+uv_tap, uv_ref, uv_low = Net("UV_TAP"), Net("UV_REF"), Net("UV_LOW")
 u_cmp = ic("TLV7022DDFR", "TLV7022DDFR", "SOT-23-8_L2.9-W1.6-P0.65-LS2.8-BR", "C2862588")
-u_cmp["VCC"] += v5r
+u_cmp["VCC"] += v3a
 u_cmp["VEE"] += gnd
 c = C("100n", C100N)
-c[1] += v5r
+c[1] += v3a
 c[2] += gnd
-# A (cold): out high = warm enough
-u_cmp["INA+"] += ha
-u_cmp["INA-"] += ntc_t
-u_cmp["OUTA"] += temp_ok
-v3ref & R("100k", R_LCSC["100k"]) & ha & R("300k", "C23024") & gnd
-temp_ok & R("5.1M", "C13320") & ha
-v5r & R("1M", R_LCSC["1M"]) & temp_ok
-# B (hot): out high = too hot, which pulls TEMP_OK low through Q_HOT
-u_cmp["INB+"] += hb
-u_cmp["INB-"] += ntc_t
-u_cmp["OUTB"] += too_hot
-v3ref & R("470k", "C23178") & hb & R("220k", "C22961") & gnd
-too_hot & R("10M", "C7250") & hb
-v5r & R("1M", R_LCSC["1M"]) & too_hot
-
-
-def nfet():
-    return ic("2N7002", "2N7002", "SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR", "C8545", "Q")
-
-
-q_hot = nfet()
-q_hot["D"] += temp_ok
-q_hot["G"] += too_hot
-q_hot["S"] += gnd
-q_drv = nfet()
-q_drv["D"] += chg_gate
-q_drv["G"] += temp_ok
-q_drv["S"] += gnd
-
-# Load switch + OR-ing diode into the Heltec 5V pin. Header 5V is the Heltec's
-# USB VBUS net; the diode drop keeps H_5V (~4.8 V) under USB's 5.0 V so a
-# connected laptop wins and is never back-fed.
-q_ls = ic("AO3401A", "AO3401A", "SOT-23_L2.9-W1.3-P1.90-LS2.4-BR", "C15127", "Q")
-q_ls["S"] += v5r
-q_ls["D"] += v5g
-q_ls["G"] += chg_gate
-v5r & R("1M", R_LCSC["1M"]) & chg_gate
-d_or = ic("SS34_C8678", "SS34", "SMA_L4.3-W2.6-LS5.2-RD", "C8678", "D")
-d_or["A"] += v5g
-d_or["K"] += h5v
+vin & R("3M", "C23156") & uv_tap & R("750k", "C23240") & gnd
+c = C("10u", "C15850", "Capacitor_SMD:C_0805_2012Metric")
+c[1] += uv_tap
+c[2] += gnd
+vref & R("510k", "C23192") & uv_ref & R("10M", "C7250") & gnd
+u_cmp["INB-"] += uv_tap
+u_cmp["INB+"] += uv_ref
+u_cmp["OUTB"] += uv_low  # open drain: released (high) = battery low
+uv_hys = Net("UV_HYS")
+uv_low & R("10M", "C7250") & uv_hys & R("10M", "C7250") & uv_ref  # hysteresis, 20M (not stocked in 0603)
+v3a & R("1M", R_LCSC["1M"]) & uv_low
+q_uv = ic("2N7002", "2N7002", "SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR", "C8545", "Q")
+q_uv["D"] += en
+q_uv["G"] += uv_low
+q_uv["S"] += gnd
 
 # ---------------------------------------------------------------- Heltec V4.3 sockets
 # H_J2 = Heltec JP4 (GND, 5V, Ve, Ve, 44, 43, RST, 0, 36, 35, 34, 33, 47, 48, 26, 21, 20, 19)
@@ -217,10 +199,9 @@ h_j3[10] += gps_txd  # GPIO39 = MCU RX (MeshCore Serial1.setPins(PIN_GPS_TX, PIN
 h_j3[11] += gps_rxd  # GPIO38 = MCU TX
 h_j3[14] += can_tx  # GPIO3
 h_j3[15] += can_rx  # GPIO4
-h_j3[17] += ntc_adc  # GPIO6
 
 NO_CONNECT_J2 = [5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18]
-NO_CONNECT_J3 = [4, 5, 6, 7, 9, 12, 13, 16, 18]
+NO_CONNECT_J3 = [4, 5, 6, 7, 9, 12, 13, 16, 17, 18]
 
 # ---------------------------------------------------------------- CAN
 # Powered from VEXT so it draws nothing while the Heltec sleeps; firmware must
@@ -269,44 +250,8 @@ j_gnss[3] += gps_rxd
 j_gnss[4] += gps_txd
 j_gnss[5] += gps_pps
 
-# ---------------------------------------------------------------- cells + protection
-# Two unprotected 18650s in parallel, each through its own PTC. DW01A + 8205A dual FET
-# low-side protection between the cell negative (BAT_N) and system ground.
-for i in (1, 2):
-    bt = part("Device", "Battery_Cell", "18650", "rn_carrier:BH_18650_TH_P72.4", "", ref=f"BT{i}")
-    cell_p = Net(f"CELL{i}_P")
-    bt[1] += cell_p
-    bt[2] += bat_n
-    f = ic("BSMD1206-200-6V", "2A hold", "F1206", "C883134", "F")
-    f[1] += cell_p
-    f[2] += bat_p
-u_prot = ic("DW01A_C351410", "DW01A", "SOT-23-6_L2.9-W1.6-P0.95-LS2.8-BL", "C351410")
-q_prot = ic("FS8205A_C2830320", "HJ8205", "SOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR", "C20069150", "Q")  # FS8205A pinout
-prot_vcc, od, oc, fet_d = Net("PROT_VCC"), Net("PROT_OD"), Net("PROT_OC"), Net("PROT_D")
-bat_p & R("100", R_LCSC["100"]) & prot_vcc
-c = C("100n", C100N)
-c[1] += prot_vcc
-c[2] += bat_n
-u_prot["VCC"] += prot_vcc
-u_prot["GND"] += bat_n
-u_prot["OD"] += od
-u_prot["OC"] += oc
-vm = Net("PROT_VM")
-u_prot["VM"] += vm
-vm & R("1k", R_LCSC["1k"]) & gnd
-q_prot["S1"] += bat_n
-q_prot["G1"] += od
-q_prot["S2"] += gnd
-q_prot["G2"] += oc
-q_prot["D1/D2"] += fet_d
-# Pack out to the Heltec battery jack (JP2: 1 = VBAT+, 2 = GND) by a straight 1.25 mm pigtail
-j_bat = ic("1.25T-2PWT", "to Heltec JP2", "CONN-SMD_P1.25-H_1.25T-2PWT", "C22074", ref="J3")
-j_bat[1] += bat_p
-j_bat[2] += gnd
-j_bat[3, 4] += gnd  # mounting tabs
-
 # ---------------------------------------------------------------- test points and holes
-for name, n in [("VIN", vin), ("V5R", v5r), ("H5V", h5v), ("BATP", bat_p), ("NTC", ntc_t), ("GND", gnd)]:
+for name, n in [("VIN", vin), ("V5R", v5r), ("H5V", h5v), ("V3A", v3a), ("GND", gnd)]:
     tp = part("Connector", "TestPoint", name, "TestPoint:TestPoint_Pad_D1.5mm", "", "TP")
     tp[1] += n
 for _ in range(4):
@@ -318,26 +263,26 @@ for _ in range(4):
 # GPIO21 is the only free RTC pin on the headers (OLED reset; RoadNode builds
 # without the OLED). Firmware: ext0 wake on high, no internal pull. There is no
 # free ADC pin, so the threshold is set here, not in firmware.
-# 1% resistors + XC6206 2%: about +-0.3 V on both thresholds (sim/wake_thr.py).
+# Worst case on 13.03..13.54 V, off 12.71..13.22 V (sim/wake_thr.py).
+# Second half of the low-voltage cutoff's TLV7022.
 car_on, v_tap, v_ref = Net("CAR_ON"), Net("V_TAP"), Net("WAKE_REF")
-u_wake = ic("TLV7022DDFR", "TLV7022DDFR", "SOT-23-8_L2.9-W1.6-P0.65-LS2.8-BR", "C2862588")
-u_wake["VCC"] += v3ref
-u_wake["VEE"] += gnd
-c = C("100n", C100N)
-c[1] += v3ref
-c[2] += gnd
 vin & R("1M", R_LCSC["1M"]) & v_tap & R("220k", "C22961") & gnd  # 14.8 V -> 2.67 V
 c = C("100n", C100N)  # ~20 ms, ignores ripple and spikes
 c[1] += v_tap
 c[2] += gnd
-v3ref & R("300k", "C23024") & v_ref & R("750k", "C23240") & gnd  # 2.36 V
-u_wake["INA+"] += v_tap
-u_wake["INA-"] += v_ref
-u_wake["OUTA"] += car_on
+vref & R("47k", "C25819") & v_ref & R("750k", "C23240") & gnd  # 2.35 V
+u_cmp["INA+"] += v_tap
+u_cmp["INA-"] += v_ref
+u_cmp["OUTA"] += car_on
 car_on & R("10M", "C7250") & v_tap  # hysteresis
-v3ref & R("1M", R_LCSC["1M"]) & car_on  # open drain, never above 3.3 V
-u_wake["INB+"] += gnd  # unused half: output held low
-u_wake["INB-"] += v3ref
+# Load dump: with VIN at the 42 V TVS clamp the tap would reach ~7.6 V, over the TLV7022's input
+# rating. Silicon (not Schottky: nA leakage, so the threshold doesn't move hot) diode to V3A
+# holds it near 3.9 V; the ~38 uA it feeds into V3A for a 400 ms dump lifts the rail <1.5 V.
+# UV_TAP needs none: its 6 s filter moves <0.4 V in a 400 ms dump.
+d_clamp = ic("1N4148WST4", "1N4148WS", "SOD-323_L1.8-W1.3-LS2.5-RD", "C2128", "D")
+d_clamp["A"] += v_tap
+d_clamp["K"] += v3a
+v3a & R("1M", R_LCSC["1M"]) & car_on  # open drain, never above 3.3 V
 h_j2[16] += car_on  # GPIO21
 tp = part("Connector", "TestPoint", "WAKE", "TestPoint:TestPoint_Pad_D1.5mm", "", "TP")
 tp[1] += car_on
@@ -349,9 +294,7 @@ if __name__ == "__main__":
     for p in NO_CONNECT_J3:
         h_j3[p] += NC
     u_buck["PG"] += NC
-    u_prot["TD"] += NC
     u_can["VREF"] += NC
-    u_wake["OUTB"] += NC
     ERC()
     # Sequential refs per prefix in creation order (explicit refs kept), then
     # tag = ref so the PCB re-links to the same footprints on every run.

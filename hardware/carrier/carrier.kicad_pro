@@ -354,31 +354,7 @@
       },
       {
         "netclass": "Power",
-        "pattern": "V5G"
-      },
-      {
-        "netclass": "Power",
         "pattern": "H_5V"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "BAT_P"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "BAT_N"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "CELL1_P"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "CELL2_P"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "PROT_D"
       },
       {
         "netclass": "Gnd",
