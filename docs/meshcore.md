@@ -125,7 +125,7 @@ Test build of stock `heltec_v4_sensor` on macOS (PlatformIO CLI): **SUCCESS** in
 
 ## 7. Other findings relevant to the plan
 
-- **Sleep**: `mesh::MainBoard` has `virtual void sleep(uint32_t secs)`; `ESP32Board` implements it (`src/helpers/ESP32Board.h`). Use as the hook for #37; wake source (CAN RX / ignition) will need custom code.
+- **Sleep** (PROJ-596): RoadNode does not repeat, so a parked node deep sleeps instead of using MeshCore's light-sleep `board.sleep()`. `src/node/main.cpp` sleeps when `SleepPolicy` (`src/vehicle/sleep_policy.h`) says so: 2 min after the parked alert condition (time for the alert to go out) or 10 min with nothing operating, never while CAR_ON is high. It checkpoints the odometer, powers the radio and GNSS down, and arms ext0 wake on `PIN_CAR_ON` (GPIO21, carrier wake comparator) high; waking is a fresh boot. `ESP32Board::enterDeepSleep` is not used because it clears every wake source. Without the carrier, GPIO21 floats: tie it to GND (engine off) or 3.3 V (engine on) on the bench.
 - **Storage**: ESP32 builds use SPIFFS (`FILESYSTEM`) for prefs and identity, so mileage storage can use NVS (`Preferences`) separately or the same filesystem. Decide in #25.
 - **No existing TWAI/CAN code** anywhere in MeshCore (grepped `src/`, `examples/`, `variants/`, `lib/`); no conflict.
 - **Debug flags** `MESH_DEBUG` and `MESH_PACKET_LOGGING` are off by default and the companion env warns not to enable them (they corrupt the serial protocol). Our CAN sniffer's serial output (#9) must not run in an env that also uses the USB companion interface.
@@ -150,8 +150,6 @@ Test build of stock `heltec_v4_sensor` on macOS (PlatformIO CLI): **SUCCESS** in
 ## Repeating (forwarding other nodes' packets)
 
 `SensorMesh::allowPacketForward` forwards unless `disable_fwd` is set, and stock sensor nodes default it to
-off. RoadNode defaults it **on** for a fresh install (`src/node/main.cpp`, `-D REPEAT_DEFAULT_ON=0` flips the
-default). The default is applied before MeshCore loads its saved prefs, so an admin `set repeat off` persists
-across reboots; `get repeat` shows the state. Flood forwarding stops at `flood_max` hops. Cost: a moving node
-is a poor repeater (coverage comes and goes as it drives) and forwarding adds radio airtime and parked power
-draw (#37, #38); turn it off with `set repeat off` if either matters. An already-provisioned unit keeps its saved setting.
+off. RoadNode keeps that default: it runs only from the car battery, deep sleeps while parked, the car is
+usually parked next to an existing repeater, and a moving node is a poor repeater. A unit flashed with an
+older build that defaulted repeating on keeps its saved setting; `get repeat` shows it, `set repeat off` clears it.

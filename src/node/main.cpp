@@ -1,8 +1,8 @@
 // Derived from MeshCore (MIT, see THIRD_PARTY_NOTICES.md).
 // RoadNode copy of vendor/MeshCore/examples/simple_sensor/main.cpp. Differences from
 // the vendor file are limited to the alert logic in MyMesh (engine start / parked
-// alerts carrying position, also posted to an optional private channel). Re-diff
-// against the vendor file on every MeshCore bump.
+// alerts carrying position, also posted to an optional private channel) and the
+// parked deep sleep (PROJ-596). Re-diff against the vendor file on every MeshCore bump.
 #include "SensorMesh.h"
 #include "vehicle/alert_channel.h"
 #include "vehicle/alert_logic.h"
@@ -10,11 +10,41 @@
 #include "vehicle/alert_settings.h"
 #include "vehicle/identity_commands.h"
 #include "vehicle/odometer_commands.h"
+#include "vehicle/sleep_policy.h"
 #include "vehicle/vehicle_runtime.h"
 
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
   static UITask ui_task(display);
+#endif
+
+#ifdef PIN_CAR_ON
+#include <driver/rtc_io.h>
+
+// Parked deep sleep. The carrier's CAR_ON line (open drain, 1M pull-up to its
+// always-on 3.3 V rail) goes high while the engine runs or the hybrid is Ready;
+// ext0 wakes on that and the node boots fresh. Checkpoints the odometer first.
+// Mirrors ESP32Board::enterDeepSleep/HeltecV4Board::powerOff, which can't be used
+// as they clear every wake source.
+static bool carOn() { return digitalRead(PIN_CAR_ON) == HIGH; }
+
+static void enterParkedSleep() {
+  bool saved = roadnode::vehicle::VehicleRuntime::shutdown();
+  Serial.printf("Parked: odometer %s, deep sleep until CAR_ON\n", saved ? "saved" : "NOT saved");
+  radio_driver.powerOff();
+  digitalWrite(P_LORA_NSS, HIGH);
+  rtc_gpio_hold_en((gpio_num_t)P_LORA_NSS);
+  digitalWrite(P_LORA_PA_POWER, LOW);
+  rtc_gpio_hold_en((gpio_num_t)P_LORA_PA_POWER);
+  if (sensors.getLocationProvider() != NULL) sensors.getLocationProvider()->stop();
+  Serial.flush();
+  delay(100);
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  rtc_gpio_pullup_dis((gpio_num_t)PIN_CAR_ON);   // the carrier pulls up
+  rtc_gpio_pulldown_dis((gpio_num_t)PIN_CAR_ON);
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_CAR_ON, 1);
+  esp_deep_sleep_start();  // never returns; wake is a fresh boot
+}
 #endif
 
 class MyMesh : public SensorMesh {
@@ -39,6 +69,9 @@ protected:
   roadnode::vehicle::AlertChannel alert_channel;
   bool was_low_batt = false, was_critical_batt = false;
   bool was_started = false, was_parked = false, was_periodic = false;
+#ifdef PIN_CAR_ON
+  roadnode::vehicle::SleepPolicy sleep_policy;
+#endif
 
   static roadnode::vehicle::AlertConfig alertConfig() {
     roadnode::vehicle::AlertConfig cfg;
@@ -109,6 +142,12 @@ protected:
     notify(c.parked, was_parked, vehicle_parked, HIGH_PRI_ALERT, text);
     positionText(text, sizeof(text), "Vehicle moving");
     notify(c.periodic, was_periodic, vehicle_periodic, LOW_PRI_ALERT, text);
+
+#ifdef PIN_CAR_ON
+    // Runs once per sensor read (60 s), so sleep comes up to a minute after the grace period.
+    bool operating = snap.trip_active || snap.engine_running;
+    if (sleep_policy.update(operating, c.parked, carOn(), millis())) enterParkedSleep();
+#endif
   }
 
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {
@@ -150,6 +189,12 @@ void setup() {
   delay(1000);
 
   board.begin();
+#ifdef PIN_CAR_ON
+  // Undo the holds from the last parked sleep before the radio and PA are driven again.
+  rtc_gpio_hold_dis((gpio_num_t)P_LORA_NSS);
+  rtc_gpio_hold_dis((gpio_num_t)P_LORA_PA_POWER);
+  pinMode(PIN_CAR_ON, INPUT);
+#endif
 
 #ifdef HAS_EXTERNAL_WATCHDOG
   external_watchdog.begin();
@@ -194,6 +239,10 @@ void setup() {
     store.save("_main", the_mesh.self_id);
   }
 
+#ifdef PIN_CAR_ON
+  Serial.printf("Wake: %s, CAR_ON %s\n", esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0 ? "CAR_ON" : "power-on/reset",
+                carOn() ? "high" : "low");
+#endif
   Serial.print("Sensor ID: ");
   mesh::Utils::printHex(Serial, the_mesh.self_id.pub_key, PUB_KEY_SIZE); Serial.println();
 
@@ -201,12 +250,6 @@ void setup() {
 
   sensors.begin();
 
-  // RoadNode forwards other nodes' packets by default (stock sensor default is off). Set before
-  // begin() so persisted prefs win: a saved 'set repeat off' survives reboots.
-#ifndef REPEAT_DEFAULT_ON
-#define REPEAT_DEFAULT_ON 1
-#endif
-  the_mesh.getNodePrefs()->disable_fwd = !REPEAT_DEFAULT_ON;
   the_mesh.begin(fs);
   the_mesh.loadVehicleSettings();
 
@@ -245,6 +288,13 @@ void loop() {
     command[0] = 0;  // reset command buffer
   }
 
+#ifdef PIN_CAR_ON
+  static int car_on_seen = -1;
+  if ((int)carOn() != car_on_seen) {
+    car_on_seen = carOn();
+    Serial.printf("CAR_ON %s\n", car_on_seen ? "high" : "low");
+  }
+#endif
   the_mesh.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS
