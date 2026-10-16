@@ -6,7 +6,6 @@
 #include "ecusim/ecu_sim.h"
 #include "obd/obd_manager.h"
 #include "obd/obd_pids.h"
-#include "obd/vehicle_profiles.h"
 
 using namespace roadnode::obd;
 using namespace roadnode::ecusim;
@@ -41,7 +40,7 @@ public:
 };
 
 static ObdManager makeManager(SimBus& bus) {
-  ObdManager m(bus, genericProfile());
+  ObdManager m(bus);
   m.enableTransmit(true);
   return m;
 }
@@ -139,7 +138,7 @@ void test_drive_cycle_distance_matches_integral() {
 
 void test_reply_delay_within_and_beyond_timeout() {
   SimBus bus;
-  ObdManager m = makeManager(bus);  // generic profile: 200 ms per request
+  ObdManager m = makeManager(bus);  // default config: 200 ms per request
   float v;
   bus.ecu.scenario().speed_kmh = 50;
   bus.ecu.scenario().reply_delay_ms = 100;

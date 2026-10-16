@@ -53,6 +53,8 @@ static void near(double expect, double got, double tol) {
 void setUp() {}
 void tearDown() {}
 
+static const char* EXAMPLE_VIN = "1HGCM82633A004352";  // a published example, not a real car
+
 static VehicleSnapshot driving() {
   VehicleSnapshot s;
   s.total_mm = 123456789000ULL;  // 123,456.789 km
@@ -64,6 +66,7 @@ static VehicleSnapshot driving() {
   s.has_battery = true;
   s.battery_v = 14.2f;
   s.vehicle_active = s.engine_running = s.trip_active = s.obd_connected = true;
+  strcpy(s.vin, EXAMPLE_VIN);
   return s;
 }
 
@@ -96,7 +99,8 @@ void test_unknown_values_omitted_not_zero() {
 void test_size_is_small_and_fits_payload() {
   ModelLpp lpp;
   encodeVehicle(driving(), lpp);
-  TEST_ASSERT_EQUAL(23, (int)lpp.buf.size());  // total 6, trip 6, speed 4, state 3, battery 4 (RPM is polled, not sent)
+  // total 6, trip 6, speed 4, state 3, battery 4, VIN 5 x 6 (RPM is polled, not sent)
+  TEST_ASSERT_EQUAL(53, (int)lpp.buf.size());
   TEST_ASSERT_FALSE(lpp.overflow);
   // MeshCore's buffer is MAX_PACKET_PAYLOAD-4 = 180 bytes shared with channel 1 (battery 4, GPS 11).
   TEST_ASSERT_TRUE(lpp.buf.size() + 4 + 11 < 180);
@@ -207,6 +211,53 @@ void test_no_location_ever_encoded() {
   }
 }
 
+void test_vin_roundtrip() {
+  ModelLpp lpp;
+  encodeVehicle(driving(), lpp);
+  DecodedVehicle d;
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+  TEST_ASSERT_TRUE(d.has_vin);
+  TEST_ASSERT_EQUAL_STRING(EXAMPLE_VIN, d.vin);
+}
+
+void test_vin_omitted_when_unknown_or_bad() {
+  for (const char* vin : {"", "1HGCM82633A00435", "1hgcm82633a004352", "1HGCM82633A00435!"}) {
+    VehicleSnapshot s = driving();
+    strcpy(s.vin, vin);
+    ModelLpp lpp;
+    encodeVehicle(s, lpp);
+    TEST_ASSERT_EQUAL(23, (int)lpp.buf.size());
+    DecodedVehicle d;
+    TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+    TEST_ASSERT_FALSE(d.has_vin);
+  }
+}
+
+void test_vin_every_character() {
+  // 0-9 and A-Z (I, O, Q included: the encoder does not judge VIN validity) in 17-character windows.
+  const char* chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEF";
+  for (int start = 0; start + 17 <= (int)strlen(chars); start++) {
+    VehicleSnapshot s;
+    memcpy(s.vin, chars + start, 17);
+    s.vin[17] = 0;
+    ModelLpp lpp;
+    encodeVehicle(s, lpp);
+    DecodedVehicle d;
+    TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size(), d));
+    TEST_ASSERT_TRUE(d.has_vin);
+    TEST_ASSERT_EQUAL_STRING(s.vin, d.vin);
+  }
+}
+
+void test_vin_needs_all_channels() {
+  ModelLpp lpp;
+  encodeVehicle(driving(), lpp);
+  DecodedVehicle d;
+  // Last VIN record is the final 6 bytes; drop it.
+  TEST_ASSERT_TRUE(decodeVehicle(lpp.buf.data(), lpp.buf.size() - 6, d));
+  TEST_ASSERT_FALSE(d.has_vin);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_roundtrip_all_fields);
@@ -221,5 +272,9 @@ int main() {
   RUN_TEST(test_decoder_rejects_truncated_and_unknown);
   RUN_TEST(test_speed_signed_encoding_range);
   RUN_TEST(test_no_location_ever_encoded);
+  RUN_TEST(test_vin_roundtrip);
+  RUN_TEST(test_vin_omitted_when_unknown_or_bad);
+  RUN_TEST(test_vin_every_character);
+  RUN_TEST(test_vin_needs_all_channels);
   return UNITY_END();
 }

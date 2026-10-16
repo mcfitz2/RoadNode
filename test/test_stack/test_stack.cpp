@@ -5,7 +5,6 @@
 #include "ecusim/ecu_sim.h"
 #include "fake_store.h"
 #include "obd/obd_manager.h"
-#include "obd/vehicle_profiles.h"
 #include "vehicle/mileage_tracker.h"
 #include "vehicle/vehicle_poller.h"
 
@@ -62,13 +61,13 @@ struct Node {
   uint32_t next_poll;
 
   Node(SimBus& b, FakeStore& store)
-      : obd(b, genericProfile()), tracker(store), poller(obd, b, tracker, telem), bus(b), next_poll(b.now) {
+      : obd(b), tracker(store), poller(obd, b, tracker, telem), bus(b), next_poll(b.now) {
     obd.enableTransmit(true);
     tracker.begin(b.now);
   }
-  // Poll at the profile's interval until the bus clock reaches until_ms.
+  // Poll at the firmware's interval until the bus clock reaches until_ms.
   void runUntil(uint32_t until_ms) {
-    uint32_t interval = obd.profile().poll_interval_ms;
+    uint32_t interval = POLL_INTERVAL_MS;
     while (bus.now < until_ms) {
       bus.idleUntil(next_poll);
       poller.step(bus.now);

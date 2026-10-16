@@ -46,7 +46,7 @@ public:
       : _obd(obd), _bus(bus), _mileage(mileage), _out(out), _cfg(cfg) {}
 
   // Run one poll cycle (blocks for at most a few request timeouts).
-  // Call at the profile's poll interval.
+  // Call every obd::POLL_INTERVAL_MS.
   void step(uint32_t now_ms);
 
   // Optional: reads the VIN once per boot (stopped only), stores it locally and

@@ -18,6 +18,10 @@ constexpr uint8_t CH_TRIP_DISTANCE = 3;    // LPP distance, metres
 constexpr uint8_t CH_SPEED = 4;            // LPP analog input, km/h
 constexpr uint8_t CH_STATE = 6;            // LPP digital input, bit flags
 constexpr uint8_t CH_VEHICLE_BATTERY = 7;  // LPP voltage, volts
+// VIN: 17 characters, 6 bits each, 4 per LPP generic sensor (24 bits, exact
+// through a float). Channels 18-22; 8-17 were retired in PROJ-680.
+constexpr uint8_t CH_VIN_FIRST = 18;
+constexpr uint8_t VIN_CHANNELS = 5;
 
 constexpr uint8_t STATE_VEHICLE_ACTIVE = 1 << 0;
 constexpr uint8_t STATE_ENGINE_RUNNING = 1 << 1;
@@ -31,8 +35,33 @@ constexpr uint32_t TOTAL_MAX_UNITS = 16777216;
 // LPP distance is 0.001 m in 32 bits: 4,294,967 m. Stay under it.
 constexpr uint32_t TRIP_MAX_M = 4294000;
 
+// VIN character codes: 0 = none, '0'-'9' = 1-10, 'A'-'Z' = 11-36.
+inline uint32_t vinCharCode(char c) {
+  if (c >= '0' && c <= '9') return (uint32_t)(c - '0') + 1;
+  if (c >= 'A' && c <= 'Z') return (uint32_t)(c - 'A') + 11;
+  return 0;
+}
+
+inline char vinCodeChar(uint32_t code) {
+  if (code >= 1 && code <= 10) return (char)('0' + code - 1);
+  if (code >= 11 && code <= 36) return (char)('A' + code - 11);
+  return 0;
+}
+
+// Packs a 17-character VIN into VIN_CHANNELS 24-bit values, first character in
+// the high bits. False (nothing written) if the VIN is missing or not 0-9/A-Z.
+inline bool packVin(const char* vin, uint32_t out[VIN_CHANNELS]) {
+  for (int g = 0; g < VIN_CHANNELS; g++) out[g] = 0;
+  for (int i = 0; i < 17; i++) {
+    uint32_t code = vinCharCode(vin[i]);
+    if (code == 0) return false;
+    out[i / 4] |= code << (18 - 6 * (i % 4));
+  }
+  return vin[17] == 0;
+}
+
 // Fields without a fresh value are omitted, never sent as zero. Total, trip
-// and state are always present.
+// and state are always present; the VIN only once one has been read.
 template <class Lpp>
 void encodeVehicle(const vehicle::VehicleSnapshot& s, Lpp& lpp) {
   uint64_t units = s.total_mm / TOTAL_UNIT_MM;
@@ -53,6 +82,11 @@ void encodeVehicle(const vehicle::VehicleSnapshot& s, Lpp& lpp) {
   lpp.addDigitalInput(CH_STATE, state);
 
   if (s.has_battery) lpp.addVoltage(CH_VEHICLE_BATTERY, s.battery_v);
+
+  uint32_t vin[VIN_CHANNELS];
+  if (packVin(s.vin, vin)) {
+    for (int g = 0; g < VIN_CHANNELS; g++) lpp.addGenericSensor(CH_VIN_FIRST + g, (float)vin[g]);
+  }
 }
 
 struct DecodedVehicle {
@@ -66,12 +100,16 @@ struct DecodedVehicle {
   uint8_t state = 0;
   bool has_battery = false;
   double battery_v = 0;
+  bool has_vin = false;  // all five VIN channels present and valid
+  char vin[18] = {0};
 };
 
 // Walks an LPP buffer and picks out the vehicle channels, skipping other
 // channels (MeshCore's channel 1). Returns false on a truncated buffer or an
 // LPP type this decoder does not know the size of.
 inline bool decodeVehicle(const uint8_t* buf, size_t len, DecodedVehicle& out) {
+  uint32_t vin[VIN_CHANNELS] = {0};
+  uint8_t vin_seen = 0;
   size_t i = 0;
   while (i + 2 <= len) {
     uint8_t ch = buf[i], type = buf[i + 1];
@@ -106,8 +144,20 @@ inline bool decodeVehicle(const uint8_t* buf, size_t len, DecodedVehicle& out) {
     } else if (ch == CH_VEHICLE_BATTERY && type == 116) {
       out.has_battery = true;
       out.battery_v = u / 100.0;
+    } else if (ch >= CH_VIN_FIRST && ch < CH_VIN_FIRST + VIN_CHANNELS && type == 100) {
+      vin[ch - CH_VIN_FIRST] = u;
+      vin_seen |= 1 << (ch - CH_VIN_FIRST);
     }
     i += 2 + size;
+  }
+  if (vin_seen == (1 << VIN_CHANNELS) - 1) {
+    out.has_vin = true;
+    for (int k = 0; k < 17; k++) {
+      out.vin[k] = vinCodeChar((vin[k / 4] >> (18 - 6 * (k % 4))) & 0x3F);
+      if (out.vin[k] == 0) out.has_vin = false;
+    }
+    out.vin[17] = 0;
+    if (!out.has_vin) out.vin[0] = 0;
   }
   return i == len;
 }

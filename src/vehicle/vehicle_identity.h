@@ -5,9 +5,9 @@
 
 #include "storage/kv_store.h"
 
-// Short vehicle ID (goes on the mesh) and VIN (stays on the device) -
-// issues #18 and #34. The VIN is deliberately kept out of VehicleSnapshot,
-// telemetry and alerts: the only way to read it is vin(), for local use.
+// Short vehicle ID and VIN - issues #18 and #34. The VIN goes into
+// VehicleSnapshot and the encrypted, ACL-only telemetry reply (PROJ-682,
+// reversing #34's device-only rule); it is never put in adverts or alerts.
 namespace roadnode {
 namespace vehicle {
 

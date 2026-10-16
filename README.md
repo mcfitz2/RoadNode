@@ -60,7 +60,7 @@ R8 boards differ (VEXT=40, GNSS enable=42, LED=46, octal PSRAM on GPIO33-37). No
 3. Calculate distance locally.
 4. Persist mileage independently of MeshCore.
 5. Do not transmit raw CAN traffic over MeshCore.
-6. Keep vehicle-specific behavior in profiles.
+6. Use the same generic OBD-II settings for every vehicle; no per-vehicle profiles.
 7. Keep OBD read-only: modes 01 and 09 only, never mode 04 (clear codes).
 8. Design parked power consumption as a first-class requirement.
 9. Reserve the V4 GNSS pins.
