@@ -18,9 +18,9 @@ bool handleEcuCommand(EcuSim& ecu, char* line, char* reply, size_t n) {
   reply[0] = 0;
 
   if (strcmp(cmd, "status") == 0) {
-    snprintf(reply, n, "cycle=%s speed=%.0f rpm=%.0f vin=%s silent=%s delay=%lums pending=%u corrupt=%u ignore=0x%lX req=%lu forbidden=%lu dist=%.0fm",
+    snprintf(reply, n, "cycle=%s speed=%.0f rpm=%.0f vin=%s silent=%s refuse=%s delay=%lums pending=%u corrupt=%u ignore=0x%lX req=%lu forbidden=%lu dist=%.0fm",
              sc.drive_cycle ? "on" : "off", sc.speed_kmh, sc.rpm, sc.vin_supported ? sc.vin : "none",
-             sc.silent ? "on" : "off", (unsigned long)sc.reply_delay_ms, (unsigned)sc.pending_frames,
+             sc.silent ? "on" : "off", sc.refuse ? "on" : "off", (unsigned long)sc.reply_delay_ms, (unsigned)sc.pending_frames,
              (unsigned)sc.corrupt, (unsigned long)sc.ignore_modes, (unsigned long)ecu.requests(),
              (unsigned long)ecu.forbiddenRequests(), ecu.distanceM());
     return true;
@@ -54,6 +54,11 @@ bool handleEcuCommand(EcuSim& ecu, char* line, char* reply, size_t n) {
   if (strcmp(cmd, "silent") == 0 && a) {
     sc.silent = isOn(a);
     snprintf(reply, n, "OK silent %s", sc.silent ? "on" : "off");
+    return true;
+  }
+  if (strcmp(cmd, "refuse") == 0 && a) {
+    sc.refuse = isOn(a);
+    snprintf(reply, n, "OK refuse %s", sc.refuse ? "on" : "off");
     return true;
   }
   struct Num {

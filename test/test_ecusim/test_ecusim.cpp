@@ -212,6 +212,9 @@ void test_commands_change_scenario() {
   TEST_ASSERT_FALSE(handleEcuCommand(ecu, c9, reply, sizeof(reply)));
   char c10[] = "pending 99";
   TEST_ASSERT_FALSE(handleEcuCommand(ecu, c10, reply, sizeof(reply)));
+  char c11[] = "refuse on";
+  TEST_ASSERT_TRUE(handleEcuCommand(ecu, c11, reply, sizeof(reply)));
+  TEST_ASSERT_TRUE(ecu.scenario().refuse);
   char bad[] = "vin SHORT";
   TEST_ASSERT_FALSE(handleEcuCommand(ecu, bad, reply, sizeof(reply)));
   char nope[] = "frobnicate 1";

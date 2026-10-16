@@ -27,6 +27,7 @@ struct EcuScenario {
   bool vin_supported = true;
 
   bool silent = false;       // answers nothing at all (bus silence on the ECU side)
+  bool refuse = false;       // answers every request negatively (a gateway after shutdown)
   uint32_t reply_delay_ms = 0;  // first reply frame is held back this long
   uint8_t pending_frames = 0;   // send this many "7F mode 78" (response pending) frames before the real reply
   Corrupt corrupt = Corrupt::None;

@@ -169,8 +169,10 @@ void VehiclePoller::step(uint32_t now_ms) {
   }
 
   _s.vehicle_active = _s.ever_can_activity && (uint32_t)age(_s.last_can_activity_ms) <= _cfg.can_active_timeout_ms;
-  if (_consec_fails >= _cfg.obd_lost_after_fails) _s.obd_connected = false;
-  else if (_s.has_speed || _s.has_rpm || _s.has_battery) _s.obd_connected = true;
+  // Connected means the ECU is serving data. A negative response keeps _consec_fails at 0 (the ECU
+  // is alive), so a gateway refusing every request after shutdown must still read as disconnected
+  // once no value is fresh (PROJ-686).
+  _s.obd_connected = _consec_fails < _cfg.obd_lost_after_fails && (_s.has_speed || _s.has_rpm || _s.has_battery);
   _s.engine_running = _s.has_rpm ? _s.rpm > 0 : (_s.has_speed && _s.speed_kmh > 0);
 
   // Distance integrates only over fresh speed samples from a connected ECU.

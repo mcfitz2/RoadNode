@@ -5,6 +5,7 @@
 #include "ecusim/ecu_sim.h"
 #include "fake_store.h"
 #include "obd/obd_manager.h"
+#include "vehicle/alert_logic.h"
 #include "vehicle/mileage_tracker.h"
 #include "vehicle/vehicle_poller.h"
 
@@ -169,6 +170,34 @@ void test_unplugged_bus_adds_nothing_and_loses_nothing() {
   TEST_ASSERT_TRUE(n.tracker.totalMm() > during);    // counting again once the ECU answers
 }
 
+// A gateway that answers every request negatively after shutdown must not hide parking (PROJ-686).
+void test_refusing_gateway_after_trip_reports_parked() {
+  SimBus bus;
+  FakeStore store;
+  Node n(bus, store);
+  AlertLogic alerts;
+  startDriving(bus);
+  n.runUntil(bus.now + EcuSim::CYCLE_MS + 30000);  // cruising
+  TEST_ASSERT_FALSE(alerts.update(n.telem.snapshot(), bus.now).parked);
+  TEST_ASSERT_TRUE(n.telem.snapshot().trip_active);
+  bus.ecu.scenario().drive_cycle = false;
+  bus.ecu.scenario().speed_kmh = 0;
+  bus.ecu.scenario().rpm = 0;
+  n.runUntil(bus.now + 5000);
+  bus.ecu.scenario().refuse = true;  // engine off; the gateway still answers, negatively
+  bool parked = false;
+  uint32_t until = bus.now + TripConfig().end_timeout_ms + 10000;
+  while (!parked && bus.now < until) {
+    n.runUntil(bus.now + POLL_INTERVAL_MS);
+    parked = alerts.update(n.telem.snapshot(), bus.now).parked;
+  }
+  VehicleSnapshot s = n.telem.snapshot();
+  TEST_ASSERT_TRUE(parked);
+  TEST_ASSERT_FALSE(s.obd_connected);
+  TEST_ASSERT_FALSE(s.trip_active);
+  TEST_ASSERT_TRUE(s.vehicle_active);  // frames keep arriving: why parked can't key on vehicle_active
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_odometer_tracks_simulated_distance_over_many_cycles);
@@ -176,5 +205,6 @@ int main() {
   RUN_TEST(test_clean_shutdown_and_reboot_keep_exact_value);
   RUN_TEST(test_power_cut_loses_at_most_one_checkpoint_interval);
   RUN_TEST(test_unplugged_bus_adds_nothing_and_loses_nothing);
+  RUN_TEST(test_refusing_gateway_after_trip_reports_parked);
   return UNITY_END();
 }
