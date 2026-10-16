@@ -70,26 +70,49 @@ bool VehicleIdentity::setId(const char* id) {
   return true;
 }
 
+bool VehicleIdentity::hasVin() const {
+  lockVin();
+  bool has = _vin[0] != 0;
+  unlockVin();
+  return has;
+}
+
+void VehicleIdentity::copyVin(char out[18]) const {
+  lockVin();
+  memcpy(out, _vin, 18);
+  unlockVin();
+}
+
 VehicleIdentity::VinResult VehicleIdentity::onVinRead(const char* vin) {
   if (!obd::vinWellFormed(vin)) return VinResult::Invalid;
-  if (hasVin()) {
-    if (strcmp(_vin, vin) == 0) return VinResult::Unchanged;
-    _vin_mismatch = true;
-    return VinResult::Mismatch;
+  lockVin();
+  VinResult r;
+  if (_vin[0] != 0) {
+    r = strcmp(_vin, vin) == 0 ? VinResult::Unchanged : VinResult::Mismatch;
+    if (r == VinResult::Mismatch) _vin_mismatch = true;
+  } else if (!_kv.putString(KEY_VIN, vin)) {
+    r = VinResult::WriteFailed;
+  } else {
+    memcpy(_vin, vin, sizeof(_vin));
+    _vin_check_ok = obd::vinValid(_vin);
+    _vin_mismatch = false;
+    r = VinResult::Stored;
   }
-  if (!_kv.putString(KEY_VIN, vin)) return VinResult::WriteFailed;
-  memcpy(_vin, vin, sizeof(_vin));
-  _vin_check_ok = obd::vinValid(_vin);
-  _vin_mismatch = false;
-  return VinResult::Stored;
+  unlockVin();
+  return r;
 }
 
 bool VehicleIdentity::clearVin() {
-  if (!_kv.remove(KEY_VIN)) return false;
-  memset(_vin, 0, sizeof(_vin));
-  _vin_check_ok = false;
-  _vin_mismatch = false;
-  return true;
+  lockVin();
+  bool ok = _kv.remove(KEY_VIN);
+  if (ok) {
+    memset(_vin, 0, sizeof(_vin));
+    _vin_check_ok = false;
+    _vin_mismatch = false;
+    _vin_gen.fetch_add(1, std::memory_order_release);
+  }
+  unlockVin();
+  return ok;
 }
 
 }  // namespace vehicle

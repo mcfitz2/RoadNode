@@ -68,7 +68,7 @@ void VehiclePoller::pollVin(uint32_t now_ms) {
 void VehiclePoller::copyVehicleId() {
   if (_identity) {
     _identity->copyId(_s.vehicle_id);
-    memcpy(_s.vin, _identity->vin(), sizeof(_s.vin));
+    _identity->copyVin(_s.vin);
   } else {
     strncpy(_s.vehicle_id, _mileage.vehicleId(), sizeof(_s.vehicle_id) - 1);
   }
@@ -144,6 +144,12 @@ void VehiclePoller::step(uint32_t now_ms) {
   }
 
   bool moving = got_speed && speed >= _cfg.vin_max_speed_kmh;
+  // `vin clear` (unit moved to another vehicle): read the new VIN now, not on the next boot.
+  if (_identity && _identity->vinGeneration() != _vin_gen) {
+    _vin_gen = _identity->vinGeneration();
+    _vin_done = false;
+    _vin_attempts = 0;
+  }
   if (_identity && !_vin_done && _vin_attempts < _cfg.vin_max_attempts && _obd.transmitEnabled() &&
       (_discovered || _obd.anyFrameSeen()) && !moving &&
       (_vin_attempts == 0 || now_ms - _vin_last_ms >= _cfg.vin_retry_ms))

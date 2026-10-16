@@ -174,10 +174,48 @@ void test_clear_vin_allows_new_vehicle() {
   VehicleIdentity id(kv);
   id.begin("RAV4");
   id.onVinRead(GOOD_VIN);
+  uint32_t gen = id.vinGeneration();
   TEST_ASSERT_TRUE(id.clearVin());
+  TEST_ASSERT_EQUAL(gen + 1, id.vinGeneration());  // tells the poller to read again
   TEST_ASSERT_FALSE(id.hasVin());
   TEST_ASSERT_EQUAL((int)Vin::Stored, (int)id.onVinRead("2HGCM82633A004352"));
   TEST_ASSERT_FALSE(id.vinMismatch());
+}
+
+void test_failed_clear_keeps_vin_and_generation() {
+  FakeKv kv;
+  VehicleIdentity id(kv);
+  id.begin("RAV4");
+  id.onVinRead(GOOD_VIN);
+  uint32_t gen = id.vinGeneration();
+  kv.fail_writes = true;
+  TEST_ASSERT_FALSE(id.clearVin());
+  TEST_ASSERT_TRUE(id.hasVin());
+  TEST_ASSERT_EQUAL(gen, id.vinGeneration());
+}
+
+// PROJ-689: the poll task stores the VIN while the command task clears it; a snapshot copy
+// must see either no VIN or the whole one.
+void test_copy_vin_is_never_torn_across_threads() {
+  FakeKv kv;
+  VehicleIdentity id(kv);
+  id.begin("RAV4");
+  std::atomic<bool> stop{false};
+  std::thread writer([&] {
+    while (!stop) {
+      id.onVinRead(GOOD_VIN);
+      id.clearVin();
+    }
+  });
+  int torn = 0;
+  for (int i = 0; i < 200000; i++) {
+    char out[18];
+    id.copyVin(out);
+    if (!(out[0] == 0 || strcmp(out, GOOD_VIN) == 0)) torn++;
+  }
+  stop = true;
+  writer.join();
+  TEST_ASSERT_EQUAL(0, torn);
 }
 
 void test_commands() {
@@ -228,6 +266,8 @@ int main() {
   RUN_TEST(test_vin_mismatch_keeps_stored_and_flags);
   RUN_TEST(test_vin_write_failure_not_remembered);
   RUN_TEST(test_clear_vin_allows_new_vehicle);
+  RUN_TEST(test_failed_clear_keeps_vin_and_generation);
+  RUN_TEST(test_copy_vin_is_never_torn_across_threads);
   RUN_TEST(test_commands);
   RUN_TEST(test_vin_never_in_command_replies);
   return UNITY_END();

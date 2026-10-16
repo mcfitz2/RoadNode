@@ -168,6 +168,27 @@ void test_vin_read_once_stopped_and_stored() {
   TEST_ASSERT_EQUAL_STRING("RAV4", r.telem.snapshot().vehicle_id);
 }
 
+// PROJ-689: `vin clear` re-arms the read without a reboot.
+void test_vin_clear_rearms_read() {
+  Rig r;
+  FakeKv kv;
+  roadnode::vehicle::VehicleIdentity id(kv);
+  id.begin("RAV4");
+  VinEcu v;
+  v.attach(r);
+  r.poller.setIdentity(&id);
+  r.run(5);
+  TEST_ASSERT_EQUAL(1, v.requests);
+  TEST_ASSERT_TRUE(id.clearVin());
+  v.vin = "2HGCM82633A004352";  // the unit is now in another vehicle
+  r.run(4);
+  TEST_ASSERT_EQUAL(2, v.requests);
+  TEST_ASSERT_TRUE(id.hasVin());
+  TEST_ASSERT_EQUAL_STRING("2HGCM82633A004352", r.telem.snapshot().vin);
+  r.run(50);
+  TEST_ASSERT_EQUAL(2, v.requests);  // done again: not re-read
+}
+
 void test_vin_deferred_while_moving() {
   Rig r;
   FakeKv kv;
@@ -461,6 +482,7 @@ void test_speed_samples_keep_spacing_while_moving() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_vin_read_once_stopped_and_stored);
+  RUN_TEST(test_vin_clear_rearms_read);
   RUN_TEST(test_vin_deferred_while_moving);
   RUN_TEST(test_vin_unsupported_not_retried);
   RUN_TEST(test_vin_silent_ecu_retries_bounded);

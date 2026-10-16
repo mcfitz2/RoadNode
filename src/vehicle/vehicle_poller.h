@@ -51,7 +51,10 @@ public:
 
   // Optional: reads the VIN once per boot (stopped only), stores it locally and
   // keeps the mileage record's vehicle ID in step with the configured ID.
-  void setIdentity(VehicleIdentity* id) { _identity = id; }
+  void setIdentity(VehicleIdentity* id) {
+    _identity = id;
+    if (id) _vin_gen = id->vinGeneration();
+  }
 
   // Checkpoint mileage before an intentional shutdown.
   bool shutdown(uint32_t now_ms) { return _mileage.shutdown(now_ms); }
@@ -85,6 +88,7 @@ private:
   bool _vin_done = false;
   uint32_t _vin_attempts = 0;
   uint32_t _vin_last_ms = 0;
+  uint32_t _vin_gen = 0;  // identity's vinGeneration() at the last re-arm
 };
 
 }  // namespace vehicle
