@@ -90,6 +90,16 @@ bool VehicleRuntime::shutdown() {
   return ok;
 }
 
+bool VehicleRuntime::suspend() {
+  if (!s_started || !s_lock) return false;
+  if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
+  bool ok = s_tracker.shutdown(millis());
+  if (s_can_ok) can::end();
+  s_can_ok = false;
+  pinMode(CAN_TX_PIN, INPUT);  // TWAI idles TX high; an unpowered transceiver would be fed through it
+  return ok;  // lock kept: the poll task must not touch the stopped driver
+}
+
 // A plain aligned 32-bit store: the poll task reads it only when a trip ends.
 void VehicleRuntime::setTime(uint32_t unix_seconds) {
   if (s_started) s_tracker.setTime(unix_seconds);

@@ -9,6 +9,7 @@
 #include <Arduino.h>
 
 #include "can/can_manager.h"
+#include "can/can_power.h"
 
 using namespace roadnode;
 
@@ -94,6 +95,7 @@ static void runLoopbackTest() {
 void setup() {
   Serial.begin(115200);
   delay(2000);  // let the host attach to native USB
+  can::powerOn();
 
   can::Config cfg;
   cfg.mode = can::Mode::Loopback;
@@ -114,6 +116,7 @@ void loop() { delay(1000); }
 void setup() {
   Serial.begin(115200);
   delay(2000);  // let the host attach to native USB
+  can::powerOn();
 
   can::Config cfg;
   cfg.mode = can::Mode::ListenOnly;

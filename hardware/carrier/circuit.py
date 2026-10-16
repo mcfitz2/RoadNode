@@ -60,7 +60,7 @@ h5v = Net("H_5V")  # Heltec header 5V pin (= its USB VBUS net)
 v3a = Net("V3A")  # always-on 3.3 V from VIN: comparators and pull-ups, up while the buck is off
 vref = Net("VREF")  # 2.5 V precision reference for both comparator thresholds
 v3v3 = Net("3V3")  # Heltec always-on 3.3 V (header)
-vext = Net("VEXT")  # Heltec switched 3.3 V (GPIO36 low = on)
+vext = Net("VEXT")  # Heltec switched 3.3 V (GPIO36, active level per MeshCore heltec_v4: HIGH)
 canh, canl = Net("CANH"), Net("CANL")
 for n in (vin, v5r, v3v3, vext):
     n.drive = 3
@@ -204,8 +204,8 @@ NO_CONNECT_J2 = [5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18]
 NO_CONNECT_J3 = [4, 5, 6, 7, 9, 12, 13, 16, 17, 18]
 
 # ---------------------------------------------------------------- CAN
-# Powered from VEXT so it draws nothing while the Heltec sleeps; firmware must
-# drive GPIO36 low before starting TWAI and keep GPIO3 low/hi-Z while VEXT is off.
+# Powered from VEXT so it draws nothing while the Heltec sleeps; firmware switches
+# VEXT on before starting TWAI and floats GPIO3 before switching it off (PROJ-685).
 u_can = ic("SN65HVD230DR", "SN65HVD230DR", "SOIC-8_L4.9-W3.9-P1.27-LS6.0-BL", "C12084")
 u_can["VCC"] += vext
 u_can["GND"] += gnd
