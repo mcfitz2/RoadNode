@@ -24,7 +24,7 @@ bool modeAllowed(uint8_t mode) {
 }
 
 bool ObdManager::accepts(uint32_t id) const {
-  if (_profile->response_id) return id == _profile->response_id;
+  if (_config.response_id) return id == _config.response_id;
   return id >= 0x7E8 && id <= 0x7EF;
 }
 
@@ -35,7 +35,7 @@ Status ObdManager::receiveMessage(uint8_t mode, int pid, uint8_t* msg, size_t& l
   uint32_t start = _bus.nowMs();
   auto remaining = [&]() -> uint32_t {
     uint32_t el = _bus.nowMs() - start;
-    return el >= _profile->timeout_ms ? 0 : _profile->timeout_ms - el;
+    return el >= _config.timeout_ms ? 0 : _config.timeout_ms - el;
   };
 
   size_t total = 0, got = 0;
@@ -115,7 +115,7 @@ Status ObdManager::request(uint8_t mode, uint8_t pid, Response& out) {
   if (!_enabled) return Status::Disabled;
 
   CanFrame req;
-  req.id = _profile->request_id;
+  req.id = _config.request_id;
   req.dlc = 8;
   memset(req.data, 0x55, 8);
   req.data[0] = 2;

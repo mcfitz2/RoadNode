@@ -4,7 +4,6 @@
 #include "fake_bus.h"
 #include "obd/obd_manager.h"
 #include "obd/obd_pids.h"
-#include "obd/vehicle_profiles.h"
 
 using namespace roadnode::obd;
 
@@ -107,12 +106,12 @@ void test_capability_second_range() {
 struct Rig {
   FakeBus bus;
   ObdManager obd;
-  Rig() : obd(bus, genericProfile()) { obd.enableTransmit(true); }
+  Rig() : obd(bus) { obd.enableTransmit(true); }
 };
 
 void test_gate_blocks_transmission() {
   FakeBus bus;
-  ObdManager obd(bus, genericProfile());
+  ObdManager obd(bus);
   Response r;
   TEST_ASSERT_FALSE(obd.transmitEnabled());
   TEST_ASSERT_EQUAL(Status::Disabled, obd.request(1, 0x0D, r));
@@ -185,10 +184,12 @@ void test_send_failure() {
   TEST_ASSERT_EQUAL(Status::BusError, r.obd.readPid(0x0D, v));
 }
 
-void test_profile_response_id_filter() {
-  static const VehicleProfile p = {"fixed", Protocol::Can11bit, 500000, 0x7E0, 0x7E8, 1000, 200, QUIRK_NONE};
+void test_config_response_id_filter() {
+  ObdConfig c;
+  c.request_id = 0x7E0;
+  c.response_id = 0x7E8;
   FakeBus bus;
-  ObdManager obd(bus, p);
+  ObdManager obd(bus, c);
   obd.enableTransmit(true);
   bus.push(0x7E9, {3, 0x41, 0x0D, 11});  // wrong ECU, ignored
   bus.push(0x7E8, {3, 0x41, 0x0D, 22});
@@ -302,13 +303,12 @@ void test_vin_validation() {
   TEST_ASSERT_TRUE(vinValid("11111111111111111"));   // classic X-free check: sum 89%11=1 -> '1'
 }
 
-// ---- profiles ----
-void test_generic_profile() {
-  const VehicleProfile& p = genericProfile();
-  TEST_ASSERT_EQUAL_HEX32(0x7DF, p.request_id);
-  TEST_ASSERT_EQUAL_UINT32(500000, p.bitrate_bps);
-  TEST_ASSERT_EQUAL(&p, &selectProfile("1HGCM82633A004352"));
-  TEST_ASSERT_EQUAL(&p, &selectProfile(nullptr));
+// ---- config ----
+void test_default_config() {
+  ObdConfig c;
+  TEST_ASSERT_EQUAL_HEX32(0x7DF, c.request_id);
+  TEST_ASSERT_EQUAL_HEX32(0, c.response_id);
+  TEST_ASSERT_EQUAL_UINT32(200, c.timeout_ms);
 }
 
 void test_clear_and_write_modes_are_refused_before_sending() {
@@ -347,7 +347,7 @@ int main() {
   RUN_TEST(test_negative_response);
   RUN_TEST(test_response_pending_then_answer);
   RUN_TEST(test_send_failure);
-  RUN_TEST(test_profile_response_id_filter);
+  RUN_TEST(test_config_response_id_filter);
   RUN_TEST(test_discovery_and_poller_skips_unsupported);
   RUN_TEST(test_discovery_no_ecu);
   RUN_TEST(test_vin_multiframe);
@@ -355,7 +355,7 @@ int main() {
   RUN_TEST(test_multiframe_bad_sequence);
   RUN_TEST(test_multiframe_truncated_times_out);
   RUN_TEST(test_vin_validation);
-  RUN_TEST(test_generic_profile);
+  RUN_TEST(test_default_config);
   RUN_TEST(test_clear_and_write_modes_are_refused_before_sending);
   RUN_TEST(test_allowed_modes_are_read_only_set);
   return UNITY_END();

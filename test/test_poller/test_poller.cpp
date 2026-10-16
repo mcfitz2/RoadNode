@@ -67,7 +67,7 @@ struct Rig {
     c.end_timeout_ms = 20000;
     return c;
   }
-  Rig() : obd(bus, genericProfile()), tracker(store, tc()), poller(obd, bus, tracker, telem) {
+  Rig() : obd(bus), tracker(store, tc()), poller(obd, bus, tracker, telem) {
     obd.enableTransmit(true);
     ecu.attach(bus);
     tracker.begin(0);
@@ -218,7 +218,8 @@ void test_configured_id_overrides_mileage_record_id() {
   TEST_ASSERT_EQUAL_STRING("CAMRY", r.telem.snapshot().vehicle_id);
 }
 
-void test_vin_not_in_snapshot_bytes() {
+// PROJ-682: the VIN read into VehicleIdentity reaches the snapshot (and so telemetry).
+void test_vin_in_snapshot() {
   Rig r;
   FakeKv kv;
   roadnode::vehicle::VehicleIdentity id(kv);
@@ -229,11 +230,7 @@ void test_vin_not_in_snapshot_bytes() {
   r.run(5);
   TEST_ASSERT_TRUE(id.hasVin());
   VehicleSnapshot s = r.telem.snapshot();
-  const char* p = (const char*)&s;
-  bool found = false;
-  for (size_t i = 0; i + 17 <= sizeof(s); i++)
-    if (memcmp(p + i, "1HGCM82633A004352", 17) == 0) found = true;
-  TEST_ASSERT_FALSE(found);
+  TEST_ASSERT_EQUAL_STRING("1HGCM82633A004352", s.vin);
 }
 
 void setUp() {}
@@ -445,7 +442,7 @@ int main() {
   RUN_TEST(test_vin_unsupported_not_retried);
   RUN_TEST(test_vin_silent_ecu_retries_bounded);
   RUN_TEST(test_configured_id_overrides_mileage_record_id);
-  RUN_TEST(test_vin_not_in_snapshot_bytes);
+  RUN_TEST(test_vin_in_snapshot);
   RUN_TEST(test_speed_samples_keep_spacing_while_moving);
   RUN_TEST(test_poller_never_transmits_clear_or_other_write_modes);
   RUN_TEST(test_normal_driving);

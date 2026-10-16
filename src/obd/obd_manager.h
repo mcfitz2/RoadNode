@@ -4,7 +4,6 @@
 #include <stdint.h>
 
 #include "obd_pids.h"
-#include "vehicle_profiles.h"
 
 // OBD-II request/response over CAN with ISO-TP (plan sections 8, 16).
 // Talks to the bus through CanBus, so it has no ESP32 or MeshCore dependency
@@ -51,16 +50,26 @@ struct Response {
   uint8_t nrc = 0;
 };
 
+// Standard OBD-II on 11-bit CAN at 500 kbit/s. Every vehicle gets the same
+// settings; there are no per-vehicle profiles.
+struct ObdConfig {
+  uint32_t request_id = 0x7DF;  // functional broadcast
+  uint32_t response_id = 0;     // 0 = accept any 0x7E8-0x7EF
+  uint32_t timeout_ms = 200;    // per request
+};
+
+// Time between poller steps.
+constexpr uint32_t POLL_INTERVAL_MS = 1000;
+
 class ObdManager {
 public:
-  ObdManager(CanBus& bus, const VehicleProfile& profile) : _bus(bus), _profile(&profile) {}
+  explicit ObdManager(CanBus& bus, const ObdConfig& config = ObdConfig()) : _bus(bus), _config(config) {}
 
   // Safety gate: nothing is ever transmitted until this is enabled.
   void enableTransmit(bool on) { _enabled = on; }
   bool transmitEnabled() const { return _enabled; }
 
-  void setProfile(const VehicleProfile& p) { _profile = &p; }
-  const VehicleProfile& profile() const { return *_profile; }
+  const ObdConfig& config() const { return _config; }
 
   // Generic request: mode (01, 09, ...) and PID. Handles single and multi-frame replies.
   Status request(uint8_t mode, uint8_t pid, Response& out);
@@ -87,7 +96,7 @@ private:
   bool accepts(uint32_t id) const;
 
   CanBus& _bus;
-  const VehicleProfile* _profile;
+  ObdConfig _config;
   CapabilityTable _caps;
   bool _enabled = false;
   uint32_t _frames_seen = 0;

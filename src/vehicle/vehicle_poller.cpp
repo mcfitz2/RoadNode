@@ -46,8 +46,8 @@ bool VehiclePoller::pollValue(uint8_t pid, float& v, uint32_t now_ms) {
   return st == Status::Ok;
 }
 
-// One VIN read per boot, deferred while moving. The result only goes to
-// VehicleIdentity (local storage); it never reaches the snapshot or telemetry.
+// One VIN read per boot, deferred while moving. The result goes to
+// VehicleIdentity, which persists it; the snapshot copies it from there.
 void VehiclePoller::pollVin(uint32_t now_ms) {
   _vin_last_ms = now_ms;
   _vin_attempts++;
@@ -64,9 +64,11 @@ void VehiclePoller::pollVin(uint32_t now_ms) {
 }
 
 // The configured ID (VehicleIdentity) wins over the one stored in the mileage record.
+// The VIN is only known through VehicleIdentity.
 void VehiclePoller::copyVehicleId() {
   if (_identity) {
     _identity->copyId(_s.vehicle_id);
+    memcpy(_s.vin, _identity->vin(), sizeof(_s.vin));
   } else {
     strncpy(_s.vehicle_id, _mileage.vehicleId(), sizeof(_s.vehicle_id) - 1);
   }

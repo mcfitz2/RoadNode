@@ -18,6 +18,7 @@ namespace vehicle {
 
 struct VehicleSnapshot {
   char vehicle_id[16] = {0};
+  char vin[18] = {0};  // empty until a VIN has been read (persisted across boots)
 
   uint64_t total_mm = 0;
   uint64_t trip_mm = 0;

@@ -31,7 +31,7 @@ storage::NvsKvStore s_kv;
 VehicleIdentity s_identity(s_kv);
 MileageTracker s_tracker(s_store);
 VehicleTelemetry s_telemetry;
-obd::ObdManager s_obd(s_bus, obd::genericProfile());
+obd::ObdManager s_obd(s_bus);
 VehiclePoller s_poller(s_obd, s_bus, s_tracker, s_telemetry);
 
 SemaphoreHandle_t s_lock = nullptr;  // serialises poller step() with shutdown() (different tasks)
@@ -44,7 +44,7 @@ void pollTask(void*) {
       s_poller.step(millis());
       xSemaphoreGive(s_lock);
     }
-    vTaskDelay(pdMS_TO_TICKS(s_obd.profile().poll_interval_ms));
+    vTaskDelay(pdMS_TO_TICKS(obd::POLL_INTERVAL_MS));
   }
 }
 

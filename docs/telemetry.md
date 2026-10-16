@@ -10,8 +10,8 @@ MeshCore clients can already decode and display it. No custom packet type.
 
 - MeshCore answers telemetry requests only for ACL clients, encrypted.
 - SensorMesh's telemetry buffer is `MAX_PACKET_PAYLOAD - 4` = 180 bytes.
-  A full vehicle record is 23 bytes (plus MeshCore's own channel 1 battery),
-  leaving large headroom.
+  A full vehicle record is 53 bytes, 23 without the VIN (plus MeshCore's own
+  channel 1 battery and GPS, 15 bytes), leaving large headroom.
 - LPP entry: `[channel][type][value]`, value is `uint32(float * multiplier)`, big-endian.
 
 ## Channels
@@ -24,6 +24,7 @@ MeshCore clients can already decode and display it. No custom packet type.
 | 4 | Speed | analog input | km/h, 0.01 signed | 4 | only if speed known |
 | 6 | State flags | digital input | bit flags | 3 | always |
 | 7 | Vehicle battery | voltage | volts, 0.01 | 4 | only if known |
+| 18-22 | VIN | generic sensor | 4 characters per channel, see below | 5 x 6 | only once a VIN has been read |
 
 Channels 5 (RPM), 8-9 (DTCs), 10-13 (coolant, load, intake air, fuel), 14-16 (GPS trip, speed,
 heading) and 17 (trip GPS/OBD ratio) were removed in PROJ-680 and are not reused. RPM is still polled:
@@ -44,6 +45,16 @@ refuses every mode outside 01 (live data) and 09 (VIN) with `Status::Forbidden` 
 | 0x02 | engine running |
 | 0x04 | trip active |
 | 0x08 | OBD connected |
+
+## VIN (channels 18-22)
+
+LPP has no string type, so the 17 characters are packed 6 bits each into five generic
+sensor values of 24 bits (exact through LPP's float). Character codes: `0`-`9` = 1-10,
+`A`-`Z` = 11-36, 0 = none. Channel 18 holds characters 1-4 with the first in bits 23-18,
+channel 19 characters 5-8, and so on; channel 22 holds character 17 in bits 23-18 and zeros.
+A client shows the VIN only when all five channels are present. The VIN is the one stored
+on the node (persisted from the last successful mode 09 read), so it appears from boot
+once any read has succeeded.
 
 ## Ranges
 
@@ -66,6 +77,10 @@ holds the placeholder `password` (so it can be public); **no real secret is ever
 At deployment, set the real admin password on each unit over the admin CLI (`password <new>`,
 stored in the node's flash prefs, not in the build), before the unit goes in a vehicle (#51).
 The vehicle id is not in the payload.
+
+The VIN is sent in the same telemetry reply (PROJ-682), so it is private to the same ACL
+clients. That reverses the earlier rule (#34) that kept it on the device. It is never in
+adverts or alert text.
 
 ## Alerts
 
