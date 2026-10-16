@@ -27,6 +27,11 @@ public:
   // if begin() has not run, the poll task did not yield in 2 s, or the write failed.
   static bool shutdown();
 
+  // shutdown() plus stop CAN and float the TX pin, so the transceiver's supply (VEXT) can be
+  // switched off without back-powering it through its D input. Deep sleep or power off must
+  // follow: the poll task stays blocked. CAN is left running if the lock is not taken in 2 s.
+  static bool suspend();
+
   // Unix time for the odometer record's last-trip timestamp. Call only with a trustworthy clock
   // (a stock MeshCore RTC with no sync holds an arbitrary value). No-op before begin().
   static void setTime(uint32_t unix_seconds);

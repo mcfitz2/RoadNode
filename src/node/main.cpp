@@ -23,13 +23,14 @@
 
 // Parked deep sleep. The carrier's CAR_ON line (open drain, 1M pull-up to its
 // always-on 3.3 V rail) goes high while the engine runs or the hybrid is Ready;
-// ext0 wakes on that and the node boots fresh. Checkpoints the odometer first.
+// ext0 wakes on that and the node boots fresh. Checkpoints the odometer and powers
+// the CAN transceiver down first.
 // Mirrors ESP32Board::enterDeepSleep/HeltecV4Board::powerOff, which can't be used
 // as they clear every wake source.
 static bool carOn() { return digitalRead(PIN_CAR_ON) == HIGH; }
 
 static void enterParkedSleep() {
-  bool saved = roadnode::vehicle::VehicleRuntime::shutdown();
+  bool saved = board.sleep();  // odometer checkpoint, CAN stopped, VEXT off
   Serial.printf("Parked: odometer %s, deep sleep until CAR_ON\n", saved ? "saved" : "NOT saved");
   radio_driver.powerOff();
   digitalWrite(P_LORA_NSS, HIGH);

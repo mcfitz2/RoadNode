@@ -8,6 +8,7 @@
 //   VEHICLE_ID             short id stored with the odometer (default "UNSET")
 #include <Arduino.h>
 
+#include "can/can_power.h"
 #include "vehicle/vehicle_runtime.h"
 
 using namespace roadnode;
@@ -19,6 +20,7 @@ using namespace roadnode;
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  can::powerOn();
 #ifdef OBD_TRANSMIT_ENABLE
   vehicle::VehicleRuntime::begin(VEHICLE_ID, true);
 #else
