@@ -20,129 +20,102 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KICAD_FP = "/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints"
 LIBS = {"rn_parts": os.path.join(HERE, "lib/rn_parts.pretty"), "rn_carrier": os.path.join(HERE, "lib/rn_carrier.pretty")}
 
-# Two-sided: the 18650 holders sit side by side on the bottom; the Heltec (USB-C at the left
-# edge) and the GT-U7 sit end to end on top, ~8.5 mm up on their sockets. Holder 1 (20.9 mm
-# wide) fits between the Heltec header rows (22.86 mm apart): one row runs along the top edge,
-# the other through the ~2 mm gap between the two holders, so no socket pin ends up under a
-# holder floor. The GT-U7 pins share the top-edge row; J1 and JP1 sit at the board ends past
-# the holders. Low SMD parts go under the modules; tall parts (C1, L1) and the rest go in the
-# open strip below them. Everything assembled is on top, so JLC assembly stays one-sided.
-BOARD_W, BOARD_H = 92.0, 47.0
+# One-sided: the Heltec (USB-C at the left edge) and the GT-U7 sit end to end on top, ~8.5 mm up
+# on their sockets, one header row along the top edge. Low SMD parts go under the modules (the
+# comparators, references and dividers under the Heltec between its header rows); tall parts
+# (C1, L1), the input stage and the test points go in the open strip below them. Everything
+# assembled is on top, so JLC assembly stays one-sided.
+BOARD_W, BOARD_H = 92.0, 37.0
 ROW_TOP = 1.6  # top-edge pin row (Heltec J3 side, GT-U7)
-HELTEC = (5.5, ROW_TOP + 22.86)  # Heltec J2-1 (GND, USB end), in the gap between the holders
-HOLES = [(3.2, 14.0), (88.8, 14.0), (3.2, 44.0), (88.8, 43.5)]  # clear of the holders and sockets
+HELTEC = (5.5, ROW_TOP + 22.86)  # Heltec J2-1 (GND, USB end)
+HOLES = [(3.2, 14.0), (88.8, 14.0), (3.2, 33.8), (88.8, 33.8)]
 # 2.4 GHz / LoRa end of the Heltec: no copper on the carrier underneath it.
 ANTENNA_KEEPOUT = (46.5, 0.6, 61.5, 27.2)
-# Holders (bottom), centred at x 46, walls 0.98 mm from the pin-row centres. Tabs come
-# through at x 46 -/+ 36.33, the 3.2 mm screw holes at 46 -/+ 27.805, both on each holder's
-# centre line. Nothing placed over them on top (solder joints, screw heads).
-# Hand-soldered: connectors, plus the Extended parts big enough for an iron (fuses, inductor,
+# Hand-soldered: connectors, plus the Extended parts big enough for an iron (fuse, inductor,
 # CAN ESD). JLC charges a placement fee plus an Extended-part fee for each. They keep their
 # LCSC codes and are ordered loose from LCSC (tools/export_fab.py writes fab/lcsc_handfit.csv).
-HAND_FIT = {"J1", "J2", "J3", "J4", "J5", "JP1", "F1", "F2", "F3", "L1", "D3"}
-HOLDER_Y = (ROW_TOP + 11.43, ROW_TOP + 22.86 + 11.43)
-HOLDER_KEEPCLEAR = [(x, y, r) for y in HOLDER_Y for x, r in
-                    ((46 - 36.33, 2.5), (46 + 36.33, 2.5), (46 - 27.805, 3.0), (46 + 27.805, 3.0))]
+HAND_FIT = {"J1", "J2", "J4", "J5", "JP1", "F1", "L1", "D4"}
 
 # ref: (x, y, rotation_deg, bottom_side)
 PLACE = {
     # Heltec sockets: footprint origin is the row centre, pin 1 at -21.59
     "J4": (HELTEC[0] + 21.59, HELTEC[1], 0, False),
     "J5": (HELTEC[0] + 21.59, HELTEC[1] - 22.86, 0, False),
-    # vehicle input at the left end, past the holders; termination jumper at the right end
-    "J1": (4.0, 34.0, 90, False),
-    "D3": (8.8, 30.0, 0, False),
-    "F1": (10.0, 42.0, 90, False),
-    "D1": (14.8, 42.5, 90, False),
-    "JP1": (88.1, 32.5, 90, False),
-    "R16": (84.5, 30.0, 90, False),
-    # strip below the modules: battery out, test points, buck
-    "F3": (13.0, 30.2, 0, False),  # BT2 + tab
-    "TP4": (18.5, 29.5, 0, False),
-    "TP6": (24.0, 30.0, 0, False),
-    "J3": (26.0, 42.5, 0, False),
-    "TP1": (36.0, 30.5, 0, False),
-    "C1": (47.0, 41.5, 90, False),
-    "C2": (47.0, 31.5, 0, False),
-    "C3": (47.0, 34.8, 0, False),
-    "U1": (55.0, 35.0, 0, False),
-    "R1": (51.5, 42.5, 90, False),  # EN divider
-    "R2": (53.25, 42.5, 90, False),
-    "C5": (55.0, 42.5, 90, False),
-    "C4": (56.75, 42.5, 90, False),  # FB feed-forward cap + divider
-    "R3": (58.5, 42.5, 90, False),
-    "R4": (60.25, 42.5, 90, False),
-    "C6": (59.5, 32.0, 90, False),
-    "L1": (64.5, 34.5, 90, False),
-    "C7": (64.5, 41.0, 0, False),
-    "C8": (64.5, 43.8, 0, False),
-    "C9": (68.5, 43.0, 90, False),
-    "TP2": (70.5, 30.0, 0, False),
-    # cell protection, near the BAT_N tabs on the right
-    "R18": (72.5, 42.5, 90, False),
-    "R19": (73.0, 45.2, 0, False),
-    "Q5": (77.5, 42.0, 0, False),
-    "U5": (83.0, 42.0, 0, False),
-    "C17": (83.0, 45.3, 0, False),
-    # under the Heltec (low parts only): CAN by J3 pins 14/15, load switch, OR diode
-    "U4": (40.0, 8.5, 90, False),
-    "C14": (44.5, 9.0, 90, False),
-    "F2": (13.5, 14.5, 90, False),  # BT1 + tab
+    # strip below the modules (y 28-36.4), left to right: vehicle input, bulk cap, buck,
+    # test points, termination jumper; tall parts (J1, C1, L1, JP1) stay out from under the modules
+    "J1": (13.5, 32.3, 0, False),
+    "F1": (22.5, 30.0, 0, False),
+    "D1": (22.5, 34.1, 0, False),
+    "TP5": (27.1, 29.9, 0, False),
+    "TP1": (27.1, 33.6, 0, False),
+    "C1": (33.8, 32.2, 0, False),
+    "C2": (41.4, 29.7, 180, False),
+    "C3": (41.4, 32.4, 180, False),
+    "Q1": (41.4, 35.0, 90, False),  # low-voltage cutoff: pulls buck EN low
+    "U1": (47.8, 30.6, 270, False),
+    "C6": (53.0, 28.8, 90, False),
+    "R1": (44.0, 34.9, 90, False),  # EN divider
+    "R2": (45.75, 34.9, 90, False),
+    "C5": (53.0, 31.85, 90, False),
+    "C4": (49.0, 34.9, 90, False),  # FB feed-forward cap + divider
+    "R3": (50.75, 34.9, 90, False),
+    "R4": (52.5, 34.9, 90, False),
+    "L1": (58.5, 32.2, 90, False),
+    "C7": (63.8, 31.4, 90, False),
+    "C8": (66.6, 31.4, 90, False),
+    "C9": (69.2, 31.4, 90, False),
+    "TP2": (72.2, 30.2, 0, False),
+    "JP1": (79.5, 30.2, 0, False),
+    "R13": (79.5, 33.5, 0, False),
+    # under the Heltec (low parts only): CAN by J5 pins 14/15, OR diode by the 5V pin
+    "U5": (40.0, 8.5, 90, False),
+    "C15": (44.5, 9.0, 90, False),
+    "D4": (22.0, 20.8, 90, False),  # CAN ESD
     "D2": (12.0, 20.8, 0, False),
     "TP3": (7.5, 20.8, 0, False),
-    "Q3": (18.5, 20.8, 0, False),
-    "R15": (22.5, 20.8, 0, False),
-    # NTC window comparator, 3.3 V reference and dividers: under the GT-U7, next to TH1
-    # (spread out here, they no longer cut the GND pours under the Heltec into pieces)
-    "U2": (65.0, 11.5, 0, False),
-    "C10": (65.0, 14.8, 0, False),
-    "C13": (68.7, 13.5, 90, False),
-    "C12": (65.5, 18.4, 0, False),
-    "R5": (71.5, 18.4, 0, False),
-    "R6": (75.0, 18.4, 0, False),
-    "R7": (78.5, 18.4, 0, False),
-    "R8": (82.0, 18.4, 0, False),
-    "R9": (85.5, 18.4, 0, False),
-    "Q1": (72.5, 21.4, 0, False),
-    "Q2": (76.0, 21.4, 0, False),
-    "U3": (80.0, 21.4, 0, False),
-    "R10": (84.0, 21.4, 0, False),
-    "R11": (87.5, 21.4, 0, False),
-    "R12": (72.5, 24.6, 0, False),
-    "R13": (76.0, 24.6, 0, False),
-    "R14": (79.5, 24.6, 0, False),
-    "C11": (83.0, 24.6, 0, False),
-    "TP5": (87.0, 24.6, 0, False),
+    "TP4": (18.5, 20.8, 0, False),
+    # always-on 3.3 V (zener-protected) and the 2.5 V reference
+    "D3": (10.0, 4.5, 0, False),
+    "R5": (10.0, 7.5, 0, False),
+    "C10": (14.5, 7.5, 0, False),
+    "U2": (11.0, 11.5, 0, False),
+    "C11": (15.0, 11.5, 90, False),
+    "U3": (33.0, 13.0, 0, False),
+    "C12": (36.5, 13.0, 90, False),
+    # dual comparator: engine-running wake (A) and low-voltage cutoff (B)
+    "U4": (24.0, 8.5, 0, False),
+    "C13": (20.0, 8.5, 90, False),
+    "R15": (18.0, 5.0, 0, False),  # wake VIN divider
+    "R16": (21.5, 5.0, 0, False),
+    "C18": (25.0, 5.0, 0, False),
+    "D5": (35.5, 5.0, 0, False),  # wake tap load-dump clamp to V3A
+    "R19": (28.5, 5.0, 0, False),  # wake hysteresis
+    "R17": (28.5, 8.5, 0, False),  # wake reference divider
+    "R18": (32.0, 8.5, 0, False),
+    "R20": (24.0, 12.5, 0, False),  # CAR_ON pull-up
+    "TP6": (29.0, 13.0, 0, False),
+    "R6": (11.0, 16.5, 0, False),  # cutoff VIN divider + 6 s filter
+    "R7": (14.5, 16.5, 0, False),
+    "C14": (18.0, 16.5, 0, False),
+    "R8": (21.5, 16.5, 0, False),  # cutoff reference, hysteresis, pull-up
+    "R9": (25.0, 16.5, 0, False),
+    "R10": (28.5, 16.5, 0, False),
+    "R11": (32.0, 16.5, 0, False),
+    "R12": (35.5, 16.5, 0, False),
     # GT-U7 on its socket: origin is the module's top edge centre, pins 1.27 below it,
     # body over x 62-90 / y 0.3-27.6 (U.FL bottom right); its switch sits under it
     "J2": (76.0, ROW_TOP - 1.27, 0, False),
-    # Engine-running wake comparator, under the Heltec between the header rows
-    "U6": (24.0, 8.5, 0, False),
-    "C18": (20.0, 8.5, 90, False),
-    "R20": (18.0, 5.0, 0, False),  # VIN divider
-    "R21": (21.5, 5.0, 0, False),
-    "C19": (25.0, 5.0, 0, False),
-    "R24": (28.5, 5.0, 0, False),  # hysteresis
-    "R22": (28.5, 8.5, 0, False),  # reference divider
-    "R23": (32.0, 8.5, 0, False),
-    "R25": (24.0, 12.5, 0, False),  # CAR_ON pull-up
-    "TP7": (29.0, 13.0, 0, False),
-    "Q4": (72.0, 6.5, 0, False),
-    "R17": (68.5, 5.5, 0, False),
-    "C15": (68.5, 8.0, 0, False),
-    "C16": (77.5, 6.5, 90, False),
-    # cells on the bottom; NTC on the bottom in the gap between them, clear of the Heltec
-    # row and the GT-U7 standoff hole (hand-fit, see main)
-    "BT1": (46.0, HOLDER_Y[0], 0, True),
-    "BT2": (46.0, HOLDER_Y[1], 0, True),
-    "TH1": (72.0, HELTEC[1], 0, True),
+    "Q2": (72.0, 6.5, 0, False),
+    "R14": (68.5, 5.5, 0, False),
+    "C16": (68.5, 8.0, 0, False),
+    "C17": (77.5, 6.5, 90, False),
 }
 
 
 # Net classes, written into carrier.kicad_pro (the autorouter reads widths from there).
-# 0.6 mm: 1 oz copper carries ~1.5 A at 10 C rise, and still fits the 8205A / HSOIC pads.
+# 0.6 mm: 1 oz copper carries ~1.5 A at 10 C rise, and still fits the HSOIC pads.
 NET_CLASSES = {
-    "Power": (0.6, 0.25, ["V_CAR", "VIN", "SW", "V5R", "V5G", "H_5V", "BAT_P", "BAT_N", "CELL1_P", "CELL2_P", "PROT_D"]),
+    "Power": (0.6, 0.25, ["V_CAR", "VIN", "SW", "V5R", "H_5V"]),
     # GND is a plane to the autorouter (both layers poured); this width is for its fanout stubs
     "Gnd": (0.4, 0.2, ["GND"]),
     "Rail": (0.4, 0.2, ["3V3", "GNSS_VCC"]),  # VEXT feeds only the CAN transceiver: default width
@@ -243,13 +216,15 @@ def add_zone(board, net, layer, keepout=False, rect=(0.3, 0.3, BOARD_W - 0.3, BO
 
 
 LOGO = os.path.join(HERE, "lib/roadnode_logo.svg")
-LOGO_BOX = (31.5, 36.9, 42.5, 46.3)  # open top area below the Heltec, beside J3
-CREDIT_AT = (31.5, 33.6)  # centre of the two text lines above the logo
+# Bottom silkscreen: the top is all parts, the bottom carries none. Placed in board coordinates
+# (as seen from the top) and mirrored so it reads right from below.
+LOGO_BOX = (39.0, 5.0, 55.0, 21.5)  # between the Heltec rows, clear of the header pins
+CREDIT_AT = (47.0, 28.6)  # centre of the two text lines below the logo
 CREDIT = ["Micah Fitzgerald", "github.com/mcfitz2/RoadNode"]
 
 
-def add_logo(board, path, box):
-    """Logo SVG onto F.SilkS as filled polygons, fitted into box (x0, y0, x1, y1).
+def add_logo(board, path, box, layer=pcbnew.B_SilkS):
+    """Logo SVG onto a silk layer as filled polygons, fitted into box (x0, y0, x1, y1).
 
     Handles the one form the logo uses: black paths of straight segments
     (M/L/Z), even-odd fill. Anything else stops the build rather than drawing wrong art.
@@ -267,6 +242,9 @@ def add_logo(board, path, box):
     ys = [y for r in rings for _, y in r]
     w, h = max(xs) - min(xs), max(ys) - min(ys)
     s = min((box[2] - box[0]) / w, (box[3] - box[1]) / h)
+    if layer == pcbnew.B_SilkS:  # mirror about the box centre
+        cx = (min(xs) + max(xs)) / 2
+        rings = [[(2 * cx - x, y) for x, y in r] for r in rings]
     ox = (box[0] + box[2]) / 2 - s * (min(xs) + max(xs)) / 2
     oy = (box[1] + box[3]) / 2 - s * (min(ys) + max(ys)) / 2
 
@@ -287,15 +265,16 @@ def add_logo(board, path, box):
         shape.SetPolyShape(island)
         shape.SetFilled(True)
         shape.SetWidth(0)
-        shape.SetLayer(pcbnew.F_SilkS)
+        shape.SetLayer(layer)
         board.Add(shape)
 
 
-def add_text(board, lines, at, size=1.0, thickness=0.15):
+def add_text(board, lines, at, size=1.0, thickness=0.15, layer=pcbnew.B_SilkS):
     for i, line in enumerate(lines):
         t = pcbnew.PCB_TEXT(board)
         t.SetText(line)
-        t.SetLayer(pcbnew.F_SilkS)
+        t.SetLayer(layer)
+        t.SetMirrored(layer == pcbnew.B_SilkS)
         t.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(size), pcbnew.FromMM(size)))
         t.SetTextThickness(pcbnew.FromMM(thickness))
         t.SetPosition(mm(at[0], at[1] + (i - (len(lines) - 1) / 2) * size * 1.6))
@@ -341,7 +320,7 @@ def main():
             fp.SetOrientationDegrees(rot)
             if bottom:
                 fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_TOP_BOTTOM)
-                # hand-fit, so JLC assembles one side only (TH1 is a single 0603)
+                # hand-fit, so JLC assembles one side only
                 fp.SetExcludedFromBOM(True)
                 fp.SetExcludedFromPosFiles(True)
         elif ref.startswith("MH") and int(ref[2:]) <= len(HOLES):
@@ -376,10 +355,6 @@ def main():
                               (0, 0, e, BOARD_H), (BOARD_W - e, 0, BOARD_W, BOARD_H)]):
         for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
             add_zone(board, None, layer, keepout=f"edge band {i}", rect=rect)
-    # holder tabs and screw holes: no top parts or tracks over them (pads keep their own clearance)
-    for i, (x, y, r) in enumerate(HOLDER_KEEPCLEAR):
-        add_zone(board, None, pcbnew.F_Cu, keepout=f"holder keep-clear {i}", rect=(x - r, y - r, x + r, y + r),
-                 footprints=True)
 
     out = os.path.join(HERE, "carrier.kicad_pcb")
     board.Save(out)
