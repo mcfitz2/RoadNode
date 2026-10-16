@@ -94,6 +94,9 @@ last valid GPS fix, or "(no GPS fix)" if none since boot.
 | `Vehicle parked at <lat>,<lon>` | high (retries until ACK) | operated since boot, engine off, no trip, ECU no longer serving data |
 | `Vehicle moving at <lat>,<lon>` | low (one attempt) | operating and speed >= 5 km/h, every 5 min |
 
+MeshCore's stock "Battery is low/critical" alerts and 24 h battery history are removed:
+the node runs from the car with no cell, so the Heltec battery ADC reads nothing useful.
+
 The periodic report first fires one interval after engine start, then every interval
 while moving (set `-D PERIODIC_ALERT_MINUTES=n`). If due while stopped it waits for the
 next moving check. MeshCore cancels a queued alert when its condition drops, so the
@@ -108,7 +111,7 @@ Each fires once per false->true edge; it is not a position stream. Logic:
 
 Stock MeshCore apps show sensor nodes without a chat view, so the direct alerts above
 are delivered and ACKed but not displayed. The node can also post each alert (same text,
-same edges, battery alerts included) to a private group channel as `<node name>: <text>`,
+same edges) to a private group channel as `<node name>: <text>`,
 which every client holding the channel secret displays.
 
 Create a private channel in the app, copy its secret (32 or 64 hex chars), then on the
