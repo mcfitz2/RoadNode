@@ -1,3 +1,12 @@
+> **Original plan, partly superseded.** Kept for background. Where this file and the code or
+> [README.md](README.md) disagree, the code and README win. Superseded:
+>
+> - **DTC reading** (modes 03/07/0A, `dtc.cpp`, milestone 9) was removed (PROJ-680). OBD is read-only, modes 01 and 09 only.
+> - **Vehicle profiles** (`vehicle_profiles.cpp`, section 9) were dropped (PROJ-682). The same generic OBD settings apply to every car.
+> - **GPS** fill, trip comparison and the extra PIDs (coolant, load, intake air, fuel level) were descoped (PROJ-680). Fuel is tracked separately via Mode 22 (PROJ-681).
+> - **Li-ion / USB power:** the carrier PCB ([hardware/carrier/](hardware/carrier/)) runs from OBD pin 16 through a buck and low-voltage cutoff, with no battery. The stock battery alerts were removed (PROJ-687).
+> - **Layout:** the real source tree is described in [README.md](README.md#layout).
+
 # MeshCore OBD-II Vehicle Telemetry Node ## 1. Project Goal Build a small, low-power vehicle telemetry device that plugs into a vehicle's OBD-II port, reads standard OBD-II/CAN information, maintains an accurate estimate of distance traveled, and reports vehicle telemetry over MeshCore. ### Initial target vehicles The device should ultimately work with: * 2006 Toyota RAV4 * ~2010 Chevrolet 
 Silverado * 2025 Ford Maverick The first development vehicle should be the **2006 RAV4**. ### Primary objective The first useful application is vehicle mileage tracking. The device should maintain: * Vehicle identity * Accumulated distance measured from vehicle speed * Current trip distance * Current vehicle speed * Ignition/vehicle-active state * Device battery voltage * Last telemetry 
 transmission The device should **not initially depend on reading the vehicle's actual odometer value**. Instead, it will calculate distance traveled by integrating vehicle speed over time. Future features: * GPS location and GPS-derived distance * OBD-II trouble-code reporting * Additional engine/vehicle telemetry * More sophisticated vehicle-specific CAN decoding * Possibly a central MeshCore 
